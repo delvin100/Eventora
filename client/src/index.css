@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary: #635BFF;
+    --primary-hover: #5145E5;
+    --bg-main: #F7F8FC;
+    --surface: #FFFFFF;
+    --text-primary: #171923;
+    --text-secondary: #687083;
+    --border-color: #E7E9F0;
+    --success: #159A72;
+    --warning: #D97706;
+    --error: #DC4545;
+  }
+
+  .dark {
+    --primary: #7C75FF;
+    --primary-hover: #635BFF;
+    --bg-main: #0F1117;
+    --surface: #181B26;
+    --text-primary: #F3F4F8;
+    --text-secondary: #9DA4B5;
+    --border-color: #272C3D;
+    --success: #1EC28F;
+    --warning: #F59E0B;
+    --error: #EF4444;
+  }
+
+  body {
+    background-color: var(--bg-main);
+    color: var(--text-primary);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+/* Animation Utilities */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 16s linear infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 3s ease-in-out infinite;
+}
