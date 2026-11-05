@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase';
 import { slugify } from '../utils/slugUtils';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
 export const eventService = {
   // Fetch all events for the current user from Supabase
   async getEvents() {
@@ -27,56 +29,64 @@ export const eventService = {
 
   // Get a single event by ID or by Slug/Name
   async getEventById(idOrSlug) {
-    if (!supabase || !idOrSlug) return null;
+    if (!idOrSlug) return null;
 
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
 
-    if (isUUID) {
+    if (supabase && isUUID) {
       const { data, error } = await supabase
         .from('events')
         .select('*, participants(id)')
         .eq('id', idOrSlug)
         .maybeSingle();
 
-      if (error) {
-        console.error('Error fetching event by id:', error);
-        return null;
+      if (!error && data) {
+        return {
+          ...data,
+          participantCount: data.participants ? data.participants.length : 0
+        };
       }
-
-      return data ? {
-        ...data,
-        participantCount: data.participants ? data.participants.length : 0
-      } : null;
     }
 
-    // Slug / Name match:
-    const targetSlug = slugify(idOrSlug);
-    const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim().toLowerCase();
+    // Slug / Name match in Supabase
+    if (supabase) {
+      const targetSlug = slugify(idOrSlug);
+      const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim().toLowerCase();
 
-    // Query events
-    const { data, error } = await supabase
-      .from('events')
-      .select('*, participants(id)')
-      .order('created_at', { ascending: false });
+      const { data, error } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .order('created_at', { ascending: false });
 
-    if (error) {
-      console.error('Error fetching event by slug:', error);
-      return null;
+      if (!error && data) {
+        const matched = (data || []).find(ev => {
+          const evSlug = slugify(ev.name);
+          return evSlug === targetSlug || ev.name.toLowerCase() === cleanName;
+        }) || (data || []).find(ev => {
+          return ev.name.toLowerCase().includes(cleanName);
+        });
+
+        if (matched) {
+          return {
+            ...matched,
+            participantCount: matched.participants ? matched.participants.length : 0
+          };
+        }
+      }
     }
 
-    const matched = (data || []).find(ev => {
-      const evSlug = slugify(ev.name);
-      return evSlug === targetSlug || ev.name.toLowerCase() === cleanName;
-    }) || (data || []).find(ev => {
-      return ev.name.toLowerCase().includes(cleanName);
-    });
+    // Fallback: Query backend API for Special Events (bypasses RLS for authorized normal users)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/special-events/${encodeURIComponent(idOrSlug)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.event) {
+          return json.event;
+        }
+      }
+    } catch (_) {}
 
-    if (!matched) return null;
-
-    return {
-      ...matched,
-      participantCount: matched.participants ? matched.participants.length : 0
-    };
+    return null;
   },
 
   // Create an event

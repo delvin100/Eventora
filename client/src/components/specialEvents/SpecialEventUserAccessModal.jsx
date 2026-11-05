@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Settings,
   ShieldCheck,
@@ -11,7 +11,10 @@ import {
   Users,
   ChevronDown,
   Loader2,
-  Lock
+  Lock,
+  Search,
+  Check,
+  User
 } from 'lucide-react';
 import { specialEventService } from '../../services/specialEventService';
 
@@ -29,6 +32,11 @@ export default function SpecialEventUserAccessModal({
   const [revokingId, setRevokingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Stylish Custom Dropdown State
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [dropdownSearch, setDropdownSearch] = useState('');
+  const dropdownRef = useRef(null);
 
   const loadData = async () => {
     if (!event?.id) return;
@@ -54,16 +62,48 @@ export default function SpecialEventUserAccessModal({
       setSelectedUserId('');
       setSuccessMsg('');
       setErrorMsg('');
+      setIsDropdownOpen(false);
+      setDropdownSearch('');
       loadData();
     }
   }, [isOpen, event?.id]);
 
+  // Click outside to close custom dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    if (isDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isDropdownOpen]);
+
   if (!isOpen || !event) return null;
+
+  const isUserGranted = (userId) => {
+    return authorizedUsers.some(u => u.id === userId || u.userId === userId);
+  };
+
+  const selectedUser = registeredUsers.find(u => u.id === selectedUserId);
+
+  const filteredDropdownUsers = registeredUsers.filter(u => {
+    const q = dropdownSearch.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      (u.displayName && u.displayName.toLowerCase().includes(q)) ||
+      (u.email && u.email.toLowerCase().includes(q))
+    );
+  });
 
   const handleGrantAccess = async (e) => {
     e.preventDefault();
     if (!selectedUserId) {
-      setErrorMsg('Please select a registered user from the dropdown.');
+      setErrorMsg('Please select a registered user first.');
       return;
     }
 
@@ -106,11 +146,6 @@ export default function SpecialEventUserAccessModal({
     }
   };
 
-  // Filter out users who already have access for the select options if desired, or mark them
-  const isUserGranted = (userId) => {
-    return authorizedUsers.some(u => u.id === userId || u.userId === userId);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="relative w-full max-w-lg bg-white dark:bg-[#161825] rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[90vh]">
@@ -118,7 +153,7 @@ export default function SpecialEventUserAccessModal({
         {/* Header */}
         <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800/80 bg-gradient-to-r from-violet-500/10 via-indigo-500/10 to-transparent flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-violet-600/15 border border-violet-500/30 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-violet-600/15 border border-violet-500/30 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0 shadow-sm">
               <Settings className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -168,44 +203,171 @@ export default function SpecialEventUserAccessModal({
             </div>
           )}
 
-          {/* Grant Access Section with Dropdown */}
+          {/* Grant Access Section with STYLISH CUSTOM DROPDOWN */}
           <form onSubmit={handleGrantAccess} className="space-y-3">
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 dark:text-gray-300">
               Grant Access to Registered User
             </label>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-              <div className="relative flex-1">
-                <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
+              {/* Custom Dropdown Container */}
+              <div ref={dropdownRef} className="relative flex-1">
+                {/* Trigger Button */}
+                <button
+                  type="button"
                   disabled={loading || granting || registeredUsers.length === 0}
-                  className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1C1F2E] text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 disabled:opacity-50 cursor-pointer appearance-none pr-10"
+                  onClick={() => setIsDropdownOpen(prev => !prev)}
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-left flex items-center justify-between gap-3 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                    isDropdownOpen
+                      ? 'border-violet-500 bg-white dark:bg-[#1D2030] ring-2 ring-violet-500/25 shadow-md shadow-violet-500/10'
+                      : 'border-gray-200 dark:border-gray-700/80 bg-gray-50/70 dark:bg-[#1A1D2D] hover:border-violet-400 dark:hover:border-violet-500/60'
+                  }`}
                 >
-                  <option value="">
-                    {loading
-                      ? 'Loading registered users...'
-                      : (registeredUsers.length === 0 ? 'No registered normal users found' : 'Select Registered User...')}
-                  </option>
-                  {registeredUsers.map(u => {
-                    const granted = isUserGranted(u.id);
-                    return (
-                      <option key={u.id} value={u.id} disabled={granted}>
-                        {u.displayName} ({u.email}) {granted ? '— [Already Granted]' : ''}
-                      </option>
-                    );
-                  })}
-                </select>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {selectedUser ? (
+                      <>
+                        <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0 shadow-sm">
+                          {(selectedUser.displayName || selectedUser.email || 'U').charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0 text-left">
+                          <span className="block text-xs font-bold text-gray-900 dark:text-white truncate">
+                            {selectedUser.displayName}
+                          </span>
+                          <span className="block text-[10px] text-gray-500 dark:text-gray-400 truncate">
+                            {selectedUser.email}
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-6 h-6 rounded-lg bg-gray-200/70 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex items-center justify-center shrink-0">
+                          <User className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-xs font-medium text-gray-500 dark:text-gray-400 truncate">
+                          {loading
+                            ? 'Loading registered users...'
+                            : registeredUsers.length === 0
+                            ? 'No registered normal users'
+                            : 'Select Registered User...'}
+                        </span>
+                      </>
+                    )}
+                  </div>
 
-                <div className="absolute right-3 top-3 pointer-events-none text-gray-400">
-                  <ChevronDown className="w-4 h-4" />
-                </div>
+                  <div className="flex items-center gap-1 shrink-0 text-gray-400">
+                    {selectedUserId && (
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedUserId('');
+                        }}
+                        className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+                        title="Clear selection"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    <ChevronDown
+                      className={`w-4 h-4 transition-transform duration-200 ${
+                        isDropdownOpen ? 'rotate-180 text-violet-500' : ''
+                      }`}
+                    />
+                  </div>
+                </button>
+
+                {/* Stylish Dropdown Popover */}
+                {isDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-2 z-50 bg-white dark:bg-[#161826] border border-gray-200 dark:border-gray-700/80 rounded-2xl shadow-2xl shadow-indigo-950/25 dark:shadow-black/80 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                    {/* Search inside Dropdown */}
+                    <div className="p-2.5 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-[#12141F]">
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          value={dropdownSearch}
+                          onChange={(e) => setDropdownSearch(e.target.value)}
+                          placeholder="Search user by name or email..."
+                          autoFocus
+                          className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#1C1F2E] text-xs text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-violet-500 focus:border-violet-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Users List */}
+                    <div className="max-h-56 overflow-y-auto p-1.5 space-y-1">
+                      {filteredDropdownUsers.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-gray-400">
+                          No matching users found
+                        </div>
+                      ) : (
+                        filteredDropdownUsers.map((u) => {
+                          const granted = isUserGranted(u.id);
+                          const isSelected = selectedUserId === u.id;
+
+                          return (
+                            <button
+                              key={u.id}
+                              type="button"
+                              disabled={granted}
+                              onClick={() => {
+                                if (!granted) {
+                                  setSelectedUserId(u.id);
+                                  setIsDropdownOpen(false);
+                                  setDropdownSearch('');
+                                }
+                              }}
+                              className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between gap-3 transition-all ${
+                                granted
+                                  ? 'opacity-50 cursor-not-allowed bg-gray-50/50 dark:bg-gray-900/30'
+                                  : isSelected
+                                  ? 'bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 border border-violet-500/30'
+                                  : 'hover:bg-gray-100/80 dark:hover:bg-[#1E2235] text-gray-900 dark:text-white cursor-pointer'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <div
+                                  className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
+                                    isSelected
+                                      ? 'bg-violet-600 text-white'
+                                      : 'bg-violet-500/15 text-violet-600 dark:text-violet-400 border border-violet-500/20'
+                                  }`}
+                                >
+                                  {(u.displayName || u.email || 'U').charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className="text-xs font-bold truncate">
+                                    {u.displayName}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400 truncate">
+                                    {u.email}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="shrink-0 flex items-center gap-1.5">
+                                {granted ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                                    <Check className="w-3 h-3" />
+                                    <span>Granted</span>
+                                  </span>
+                                ) : isSelected ? (
+                                  <Check className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+                                ) : null}
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
+              {/* Grant Access Button */}
               <button
                 type="submit"
                 disabled={loading || granting || !selectedUserId}
-                className="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-md shadow-violet-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                className="px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold shadow-md shadow-violet-600/30 flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
               >
                 {granting ? (
                   <Loader2 className="w-4 h-4 animate-spin" />

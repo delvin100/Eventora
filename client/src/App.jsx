@@ -16,6 +16,7 @@ import SavedListsPage from './pages/SavedListsPage';
 import ResultsHistoryPage from './pages/ResultsHistoryPage';
 import TemplatesPage from './pages/TemplatesPage';
 import SpecialEventsPage from './pages/SpecialEventsPage';
+import UsersManagementPage from './pages/UsersManagementPage';
 import SettingsPage from './pages/SettingsPage';
 
 // Prathibha Sangamam Special Event Portal
@@ -75,6 +76,7 @@ export default function App() {
               <Route path="results" element={<ResultsHistoryPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="special-events" element={<SpecialEventsPage />} />
+              <Route path="users" element={<UsersManagementPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
 

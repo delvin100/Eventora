@@ -18,7 +18,8 @@ import {
   HelpCircle,
   Sparkles,
   Zap,
-  Crown
+  Crown,
+  Users
 } from 'lucide-react';
 import EventoraLogo from '../EventoraLogo';
 import { useAuth } from '../../context/AuthContext';
@@ -64,6 +65,7 @@ export default function AppLayout() {
     { name: 'Recent Results', to: '/app/results', icon: History },
     { name: 'Templates', to: '/app/templates', icon: FileBox },
     ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown, isSpecial: true }] : []),
+    ...(isAdmin ? [{ name: 'Users', to: '/app/users', icon: Users }] : []),
     { name: 'Settings', to: '/app/settings', icon: Settings },
   ];
 

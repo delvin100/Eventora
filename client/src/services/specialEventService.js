@@ -1,18 +1,34 @@
 import { supabase } from '../lib/supabase';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
 export const specialEventService = {
   // Fetch all special events (category: 'Special Event') with participant, allocation, and user access counts
   // Admins see all special events. Normal users ONLY see special events they have been granted access to.
   async getSpecialEvents(currentUser) {
-    if (!supabase) return [];
     let user = currentUser;
-    if (!user) {
+    if (!user && supabase) {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       user = authUser;
     }
     if (!user) return [];
 
     const isAdmin = user.email === 'admin@gmail.com' || user.user_metadata?.role === 'admin';
+
+    // 1. Try fetching via backend API (uses service-role key to bypass Supabase RLS)
+    try {
+      const query = `?userId=${encodeURIComponent(user.id)}&email=${encodeURIComponent(user.email || '')}`;
+      const res = await fetch(`${API_BASE_URL}/ps/special-events${query}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.events)) {
+          return json.events;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Direct Supabase Fallback
+    if (!supabase) return [];
 
     if (isAdmin) {
       const [{ data: eventsData, error: evErr }, { data: allocData }, { data: accessData }] = await Promise.all([
@@ -447,7 +463,20 @@ export const specialEventService = {
 
   // Get users granted access to a special event
   async getSpecialEventUserAccess(eventId) {
-    if (!supabase || !eventId) return [];
+    if (!eventId) return [];
+
+    // Try backend API first
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/special-events/${eventId}/access`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.accessList)) {
+          return json.accessList;
+        }
+      }
+    } catch (_) {}
+
+    if (!supabase) return [];
     try {
       const { data } = await supabase
         .from('results')
@@ -465,7 +494,24 @@ export const specialEventService = {
 
   // Grant special event access to a registered user
   async grantSpecialEventUserAccess(eventId, targetUser) {
-    if (!supabase || !eventId || !targetUser) return [];
+    if (!eventId || !targetUser) return [];
+
+    // Try backend API first
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/special-events/${eventId}/access`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUser })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.accessList)) {
+          return json.accessList;
+        }
+      }
+    } catch (_) {}
+
+    if (!supabase) return [];
     try {
       const { data: event } = await supabase
         .from('events')
@@ -522,7 +568,22 @@ export const specialEventService = {
 
   // Revoke user access from a special event
   async revokeSpecialEventUserAccess(eventId, targetUserId) {
-    if (!supabase || !eventId || !targetUserId) return [];
+    if (!eventId || !targetUserId) return [];
+
+    // Try backend API first
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/special-events/${eventId}/access/${targetUserId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.accessList)) {
+          return json.accessList;
+        }
+      }
+    } catch (_) {}
+
+    if (!supabase) return [];
     try {
       const { data: existing } = await supabase
         .from('results')

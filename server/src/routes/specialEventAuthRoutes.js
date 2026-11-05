@@ -594,6 +594,16 @@ router.get('/registered-users', async (req, res, next) => {
       .from('profiles')
       .select('*');
 
+    // Fetch event counts per owner
+    const { data: allEvents } = await supabase
+      .from('events')
+      .select('id, owner_id');
+
+    const eventCountMap = new Map();
+    (allEvents || []).forEach(e => {
+      eventCountMap.set(e.owner_id, (eventCountMap.get(e.owner_id) || 0) + 1);
+    });
+
     const profileMap = new Map();
     (profiles || []).forEach(p => {
       profileMap.set(p.id, p);
@@ -609,7 +619,10 @@ router.get('/registered-users', async (req, res, next) => {
           id: u.id,
           email: email,
           displayName: prof?.display_name || u.user_metadata?.display_name || email.split('@')[0] || 'User',
-          usageType: prof?.usage_type || u.user_metadata?.usage_type || 'personal'
+          usageType: prof?.usage_type || u.user_metadata?.usage_type || 'personal',
+          createdAt: prof?.created_at || u.created_at || null,
+          lastSignInAt: u.last_sign_in_at || null,
+          eventsCount: eventCountMap.get(u.id) || 0
         });
       });
     } else {
@@ -619,7 +632,9 @@ router.get('/registered-users', async (req, res, next) => {
           id: p.id,
           email: p.display_name?.toLowerCase().includes('@') ? p.display_name : `${p.display_name?.toLowerCase().replace(/\s+/g, '')}@user.app`,
           displayName: p.display_name || 'User',
-          usageType: p.usage_type || 'personal'
+          usageType: p.usage_type || 'personal',
+          createdAt: p.created_at || null,
+          eventsCount: eventCountMap.get(p.id) || 0
         });
       });
     }
@@ -628,6 +643,380 @@ router.get('/registered-users', async (req, res, next) => {
       success: true,
       users: resultUsers
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/users/:userId
+ * Delete a user account and ALL data related to that account
+ * (events, participants, results, saved lists, saved list entries, profiles, auth user)
+ */
+router.delete('/users/:userId', async (req, res, next) => {
+  try {
+    const { userId } = req.params;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'User ID is required.' });
+    }
+
+    // Protection: never delete the master admin
+    if (userId === 'f92acb4e-09b2-4f1c-ae6f-fc4d6e7601e1') {
+      return res.status(403).json({ success: false, message: 'Cannot delete the master admin account.' });
+    }
+
+    if (!supabase) {
+      return res.status(500).json({ success: false, message: 'Database connection unavailable.' });
+    }
+
+    // Double check email if available to prevent deleting admin@gmail.com
+    try {
+      const { data: userRecord } = await supabase.auth.admin.getUserById(userId);
+      if (userRecord?.user?.email?.toLowerCase() === 'admin@gmail.com') {
+        return res.status(403).json({ success: false, message: 'Cannot delete admin account.' });
+      }
+    } catch (_) {}
+
+    // 1. Fetch user's events to cascade delete participants & results
+    const { data: userEvents } = await supabase
+      .from('events')
+      .select('id')
+      .eq('owner_id', userId);
+
+    const eventIds = (userEvents || []).map(e => e.id);
+
+    if (eventIds.length > 0) {
+      await supabase.from('participants').delete().in('event_id', eventIds);
+      await supabase.from('results').delete().in('event_id', eventIds);
+      await supabase.from('events').delete().in('id', eventIds);
+    }
+
+    // Also delete any direct results created by this user
+    await supabase.from('results').delete().eq('owner_id', userId);
+
+    // 2. Fetch user's saved lists to delete list entries & lists
+    const { data: userLists } = await supabase
+      .from('saved_lists')
+      .select('id')
+      .eq('owner_id', userId);
+
+    const listIds = (userLists || []).map(l => l.id);
+    if (listIds.length > 0) {
+      await supabase.from('saved_list_entries').delete().in('list_id', listIds);
+      await supabase.from('saved_lists').delete().in('id', listIds);
+    }
+
+    // 3. Clean up user from any special_event_user_access records
+    const { data: accessRecords } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('operation_type', 'special_event_user_access');
+
+    for (const rec of (accessRecords || [])) {
+      if (Array.isArray(rec.result_snapshot)) {
+        const filtered = rec.result_snapshot.filter(u => u.id !== userId && u.userId !== userId);
+        if (filtered.length !== rec.result_snapshot.length) {
+          await supabase.from('results').update({ result_snapshot: filtered }).eq('id', rec.id);
+        }
+      }
+    }
+
+    // 4. Delete profile
+    await supabase.from('profiles').delete().eq('id', userId);
+
+    // 5. Delete auth user
+    try {
+      await supabase.auth.admin.deleteUser(userId);
+    } catch (authErr) {
+      console.warn('Supabase auth.admin.deleteUser notice:', authErr.message);
+    }
+
+    return res.json({
+      success: true,
+      message: 'User account and all related data deleted successfully.'
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/special-events
+ * Fetch special events for the current user
+ * Admin sees all; granted users see events they have access to.
+ */
+router.get('/special-events', async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.json({ success: true, events: [] });
+    }
+
+    const { userId, email } = req.query;
+    const userEmail = (email || '').toLowerCase().trim();
+    const isAdmin = userEmail === 'admin@gmail.com';
+
+    // 1. Fetch access records and alloc records
+    const [{ data: allocData }, { data: accessData }] = await Promise.all([
+      supabase.from('results').select('event_id, result_snapshot').eq('operation_type', 'special_event_allocations'),
+      supabase.from('results').select('event_id, result_snapshot').eq('operation_type', 'special_event_user_access')
+    ]);
+
+    const allocCountMap = {};
+    (allocData || []).forEach(r => {
+      allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
+    });
+
+    const accessCountMap = {};
+    const accessRecordsMap = {};
+    (accessData || []).forEach(r => {
+      const list = Array.isArray(r.result_snapshot) ? r.result_snapshot : [];
+      accessCountMap[r.event_id] = list.length;
+      accessRecordsMap[r.event_id] = list;
+    });
+
+    if (isAdmin) {
+      const { data: eventsData, error } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .eq('category', 'Special Event')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      const events = (eventsData || []).map(ev => ({
+        ...ev,
+        participantCount: ev.participants ? ev.participants.length : 0,
+        allocatedUserCount: allocCountMap[ev.id] || 0,
+        grantedUserCount: accessCountMap[ev.id] || 0
+      }));
+
+      return res.json({ success: true, events });
+    }
+
+    // Normal user: find allowed event IDs
+    const allowedEventIds = [];
+    Object.entries(accessRecordsMap).forEach(([eventId, userList]) => {
+      const isGranted = userList.some(u =>
+        (userId && (u.id === userId || u.userId === userId)) ||
+        (userEmail && u.email && u.email.toLowerCase() === userEmail)
+      );
+      if (isGranted) allowedEventIds.push(eventId);
+    });
+
+    if (allowedEventIds.length === 0) {
+      return res.json({ success: true, events: [] });
+    }
+
+    const { data: eventsData, error } = await supabase
+      .from('events')
+      .select('*, participants(id)')
+      .in('id', allowedEventIds)
+      .eq('category', 'Special Event')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const events = (eventsData || []).map(ev => ({
+      ...ev,
+      participantCount: ev.participants ? ev.participants.length : 0,
+      allocatedUserCount: 0,
+      grantedUserCount: 0
+    }));
+
+    return res.json({ success: true, events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/special-events/:eventId/access
+ * Get authorized users for a special event
+ */
+router.get('/special-events/:eventId/access', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    if (!supabase || !eventId) return res.json({ success: true, accessList: [] });
+
+    const { data } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_user_access')
+      .maybeSingle();
+
+    return res.json({
+      success: true,
+      accessList: Array.isArray(data?.result_snapshot) ? data.result_snapshot : []
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/special-events/:eventId/access
+ * Grant user access to a special event
+ */
+router.post('/special-events/:eventId/access', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { targetUser } = req.body;
+
+    if (!supabase || !eventId || !targetUser) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments' });
+    }
+
+    const { data: event } = await supabase
+      .from('events')
+      .select('id, owner_id')
+      .eq('id', eventId)
+      .single();
+
+    const { data: existing } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_user_access')
+      .maybeSingle();
+
+    const current = Array.isArray(existing?.result_snapshot) ? existing.result_snapshot : [];
+    if (current.some(u => u.id === targetUser.id || (u.email && targetUser.email && u.email.toLowerCase() === targetUser.email.toLowerCase()))) {
+      return res.json({ success: true, accessList: current });
+    }
+
+    const updated = [
+      ...current,
+      {
+        id: targetUser.id,
+        userId: targetUser.id,
+        email: targetUser.email || '',
+        displayName: targetUser.displayName || targetUser.display_name || targetUser.name || 'User',
+        grantedAt: new Date().toISOString()
+      }
+    ];
+
+    if (existing?.id) {
+      await supabase
+        .from('results')
+        .update({ result_snapshot: updated })
+        .eq('id', existing.id);
+    } else {
+      await supabase
+        .from('results')
+        .insert([{
+          event_id: eventId,
+          owner_id: event?.owner_id || 'f92acb4e-09b2-4f1c-ae6f-fc4d6e7601e1',
+          operation_type: 'special_event_user_access',
+          result_name: 'Special Event Authorized Users',
+          result_snapshot: updated
+        }]);
+    }
+
+    return res.json({ success: true, accessList: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/special-events/:eventId/access/:targetUserId
+ * Revoke user access to a special event
+ */
+router.delete('/special-events/:eventId/access/:targetUserId', async (req, res, next) => {
+  try {
+    const { eventId, targetUserId } = req.params;
+    if (!supabase || !eventId || !targetUserId) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments' });
+    }
+
+    const { data: existing } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_user_access')
+      .maybeSingle();
+
+    if (!existing?.id) {
+      return res.json({ success: true, accessList: [] });
+    }
+
+    const current = Array.isArray(existing.result_snapshot) ? existing.result_snapshot : [];
+    const updated = current.filter(u => u.id !== targetUserId && u.userId !== targetUserId);
+
+    await supabase
+      .from('results')
+      .update({ result_snapshot: updated })
+      .eq('id', existing.id);
+
+    return res.json({ success: true, accessList: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/special-events/:idOrSlug
+ * Get a special event by ID or slug
+ */
+router.get('/special-events/:idOrSlug', async (req, res, next) => {
+  try {
+    const { idOrSlug } = req.params;
+    if (!supabase || !idOrSlug) return res.status(404).json({ success: false, message: 'Not found' });
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+
+    let eventData = null;
+    if (isUUID) {
+      const { data } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .eq('id', idOrSlug)
+        .maybeSingle();
+      eventData = data;
+    } else {
+      const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim();
+      const { data } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .ilike('name', `%${cleanName}%`)
+        .maybeSingle();
+      eventData = data;
+    }
+
+    if (!eventData) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    return res.json({
+      success: true,
+      event: {
+        ...eventData,
+        participantCount: eventData.participants ? eventData.participants.length : 0
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/events/:eventId/participants
+ * Get participants for a special event
+ */
+router.get('/events/:eventId/participants', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    if (!supabase || !eventId) return res.json({ success: true, participants: [] });
+
+    const { data, error } = await supabase
+      .from('participants')
+      .select('*')
+      .eq('event_id', eventId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+    return res.json({ success: true, participants: data || [] });
   } catch (err) {
     next(err);
   }

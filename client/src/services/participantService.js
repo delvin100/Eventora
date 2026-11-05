@@ -1,22 +1,34 @@
 import { supabase } from '../lib/supabase';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+
 export const participantService = {
   // Fetch participants for an event directly from Supabase
   async getParticipants(eventId) {
-    if (!supabase) return [];
-    
-    const { data, error } = await supabase
-      .from('participants')
-      .select('*')
-      .eq('event_id', eventId)
-      .order('created_at', { ascending: true });
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('participants')
+        .select('*')
+        .eq('event_id', eventId)
+        .order('created_at', { ascending: true });
 
-    if (error) {
-      console.error('Error fetching participants from Supabase:', error);
-      return [];
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data;
+      }
     }
 
-    return data || [];
+    // Fallback: Query backend API for Special Events (bypasses RLS)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.participants) && json.participants.length > 0) {
+          return json.participants;
+        }
+      }
+    } catch (_) {}
+
+    return [];
   },
 
   // Add single participant directly to Supabase
