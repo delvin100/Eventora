@@ -12,10 +12,12 @@ export const resultController = {
         .from('results')
         .select('*')
         .eq('event_id', eventId)
+        .not('operation_type', 'like', 'special_event_%')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      res.json(data);
+      const cleanData = (data || []).filter(r => !(r.operation_type || '').toLowerCase().startsWith('special_event_'));
+      res.json(cleanData);
     } catch (err) {
       next(err);
     }

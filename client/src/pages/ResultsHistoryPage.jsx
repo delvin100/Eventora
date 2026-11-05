@@ -60,7 +60,9 @@ export default function ResultsHistoryPage() {
   ];
 
   const filtered = results.filter(r => {
-    const type = r.operation_type || r.type;
+    const type = (r.operation_type || r.type || '').toLowerCase();
+    // Exclude internal special event operational records (user access, allocations, settings, etc.)
+    if (type.startsWith('special_event_')) return false;
     if (activeFilter === 'all') return true;
     return type === activeFilter;
   });

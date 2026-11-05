@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 
 export const resultService = {
-  // Get all results for the logged-in user or event
+  // Get all results for the logged-in user or event (excluding internal special event configuration records)
   async getResults(eventId = null) {
     if (!supabase) return [];
     const { data: { user } } = await supabase.auth.getUser();
@@ -10,11 +10,13 @@ export const resultService = {
     let query = supabase
       .from('results')
       .select('*, events(name)')
-      .eq('owner_id', user.id)
+      .not('operation_type', 'like', 'special_event_%')
       .order('created_at', { ascending: false });
 
     if (eventId) {
       query = query.eq('event_id', eventId);
+    } else {
+      query = query.eq('owner_id', user.id);
     }
 
     const { data, error } = await query;
@@ -23,7 +25,13 @@ export const resultService = {
       return [];
     }
 
-    return (data || []).map(r => ({
+    // Exclude any internal special event operational records (user access, allocations, settings, etc.)
+    const cleanResults = (data || []).filter(r => {
+      const type = (r.operation_type || r.type || '').toLowerCase();
+      return !type.startsWith('special_event_');
+    });
+
+    return cleanResults.map(r => ({
       ...r,
       event_name: r.events?.name || 'General Event'
     }));
