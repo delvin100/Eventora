@@ -240,14 +240,7 @@ export const TASK_PACKS = [
 ];
 
 export const ENCOURAGING_AFFIRMATIONS = [
-  "You're going to do amazing!",
-  "Thank you for sharing your light with us! ✨",
-  "Your positive energy makes our group better! 🌟",
-  "We are all cheering for you! 👏",
-  "You are capable of wonderful things!",
-  "Thank you for bringing your kindness to class! ❤️",
-  "Well done, good and faithful participant! 🕊️",
-  "Every small good deed makes a big difference!"
+  "Congratulations on being selected! 🎊"
 ];
 
 export const GROUP_NAME_THEMES = {

@@ -3,18 +3,12 @@ import { X, UserPlus, Check } from 'lucide-react';
 
 export default function AddParticipantModal({ isOpen, onClose, onSave, editingParticipant = null }) {
   const [name, setName] = useState('');
-  const [identifier, setIdentifier] = useState('');
-  const [department, setDepartment] = useState('');
 
   useEffect(() => {
     if (editingParticipant) {
       setName(editingParticipant.name || '');
-      setIdentifier(editingParticipant.external_identifier || '');
-      setDepartment(editingParticipant.metadata?.department || '');
     } else {
       setName('');
-      setIdentifier('');
-      setDepartment('');
     }
   }, [editingParticipant, isOpen]);
 
@@ -26,8 +20,8 @@ export default function AddParticipantModal({ isOpen, onClose, onSave, editingPa
 
     onSave({
       name: name.trim(),
-      external_identifier: identifier.trim(),
-      metadata: { department: department.trim() }
+      external_identifier: editingParticipant?.external_identifier || '',
+      metadata: editingParticipant?.metadata || {}
     });
 
     onClose();
@@ -46,7 +40,7 @@ export default function AddParticipantModal({ isOpen, onClose, onSave, editingPa
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -55,7 +49,7 @@ export default function AddParticipantModal({ isOpen, onClose, onSave, editingPa
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Full Name *
+              Full Name
             </label>
             <input
               type="text"
@@ -68,37 +62,11 @@ export default function AddParticipantModal({ isOpen, onClose, onSave, editingPa
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Student / Employee ID (Optional)
-            </label>
-            <input
-              type="text"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              placeholder="e.g. STU-1001 or EMP-402"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Department / Group / Tag (Optional)
-            </label>
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="e.g. Science, Grade 10A, Team Alpha"
-              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
-            />
-          </div>
-
           <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-2">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>

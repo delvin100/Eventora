@@ -19,6 +19,8 @@ import { useAuth } from '../context/AuthContext';
 import { eventService } from '../services/eventService';
 import { resultService } from '../services/resultService';
 import { listService } from '../services/listService';
+import { formatDate } from '../utils/dateUtils';
+import { slugify } from '../utils/slugUtils';
 
 export default function DashboardOverview() {
   const { user, profile } = useAuth();
@@ -69,7 +71,7 @@ export default function DashboardOverview() {
             <Sparkles className="w-5 h-5 text-[#635BFF] animate-pulse" />
           </h1>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            Real-time event overview powered by Supabase.
+            Real-time event overview and activity.
           </p>
         </div>
 
@@ -138,7 +140,7 @@ export default function DashboardOverview() {
         </h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
           <Link
-            to={events.length > 0 ? `/app/events/${events[0].id}/wheel` : '/app/events/new'}
+            to={events.length > 0 ? `/app/events/${slugify(events[0].name)}/wheel` : '/app/events/new'}
             className="p-4 rounded-xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-indigo-400 dark:hover:border-indigo-600 shadow-sm hover:shadow transition-all flex flex-col items-center text-center group"
           >
             <div className="w-10 h-10 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF] flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
@@ -149,7 +151,7 @@ export default function DashboardOverview() {
           </Link>
 
           <Link
-            to={events.length > 0 ? `/app/events/${events[0].id}/shuffle` : '/app/events/new'}
+            to={events.length > 0 ? `/app/events/${slugify(events[0].name)}/shuffle` : '/app/events/new'}
             className="p-4 rounded-xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-purple-400 dark:hover:border-purple-600 shadow-sm hover:shadow transition-all flex flex-col items-center text-center group"
           >
             <div className="w-10 h-10 rounded-lg bg-purple-50 dark:bg-purple-950/50 text-purple-600 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
@@ -160,7 +162,7 @@ export default function DashboardOverview() {
           </Link>
 
           <Link
-            to={events.length > 0 ? `/app/events/${events[0].id}/groups` : '/app/events/new'}
+            to={events.length > 0 ? `/app/events/${slugify(events[0].name)}/groups` : '/app/events/new'}
             className="p-4 rounded-xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-emerald-400 dark:hover:border-emerald-600 shadow-sm hover:shadow transition-all flex flex-col items-center text-center group"
           >
             <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
@@ -197,7 +199,7 @@ export default function DashboardOverview() {
           </div>
 
           {loading ? (
-            <div className="py-12 text-center text-xs text-gray-400">Loading events from Supabase...</div>
+            <div className="py-12 text-center text-xs text-gray-400">Loading events...</div>
           ) : events.length === 0 ? (
             <div className="p-8 text-center bg-white dark:bg-[#161925] rounded-3xl border border-gray-200/80 dark:border-gray-800 space-y-3">
               <CalendarDays className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto" />
@@ -236,7 +238,7 @@ export default function DashboardOverview() {
                       </button>
                     </div>
                     <h3 className="font-bold text-base text-gray-900 dark:text-white">
-                      <Link to={`/app/events/${event.id}`} className="hover:text-[#635BFF] transition-colors">
+                      <Link to={`/app/events/${slugify(event.name)}`} className="hover:text-[#635BFF] transition-colors">
                         {event.name}
                       </Link>
                     </h3>
@@ -259,7 +261,7 @@ export default function DashboardOverview() {
                     </div>
 
                     <Link
-                      to={`/app/events/${event.id}`}
+                      to={`/app/events/${slugify(event.name)}`}
                       className="p-2 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-[#635BFF] hover:text-white text-gray-600 dark:text-gray-300 transition-colors"
                       title="Open Workspace"
                     >
@@ -294,7 +296,7 @@ export default function DashboardOverview() {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-gray-900 dark:text-white">{res.result_name}</span>
                     <span className="text-[10px] text-gray-400">
-                      {new Date(res.created_at).toLocaleDateString()}
+                      {formatDate(res.created_at)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">

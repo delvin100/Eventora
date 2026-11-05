@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { slugify } from '../utils/slugUtils';
 
 export const eventService = {
   // Fetch all events for the current user from Supabase
@@ -24,23 +25,57 @@ export const eventService = {
     }));
   },
 
-  // Get a single event by ID
-  async getEventById(eventId) {
-    if (!supabase) return null;
+  // Get a single event by ID or by Slug/Name
+  async getEventById(idOrSlug) {
+    if (!supabase || !idOrSlug) return null;
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+
+    if (isUUID) {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .eq('id', idOrSlug)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching event by id:', error);
+        return null;
+      }
+
+      return data ? {
+        ...data,
+        participantCount: data.participants ? data.participants.length : 0
+      } : null;
+    }
+
+    // Slug / Name match:
+    const targetSlug = slugify(idOrSlug);
+    const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim().toLowerCase();
+
+    // Query events
     const { data, error } = await supabase
       .from('events')
       .select('*, participants(id)')
-      .eq('id', eventId)
-      .single();
+      .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching event by id:', error);
+      console.error('Error fetching event by slug:', error);
       return null;
     }
 
+    const matched = (data || []).find(ev => {
+      const evSlug = slugify(ev.name);
+      return evSlug === targetSlug || ev.name.toLowerCase() === cleanName;
+    }) || (data || []).find(ev => {
+      return ev.name.toLowerCase().includes(cleanName);
+    });
+
+    if (!matched) return null;
+
     return {
-      ...data,
-      participantCount: data.participants ? data.participants.length : 0
+      ...matched,
+      participantCount: matched.participants ? matched.participants.length : 0
     };
   },
 

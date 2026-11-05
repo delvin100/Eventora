@@ -269,13 +269,13 @@ export default function ImportModal({ isOpen, onClose, onImportComplete, existin
                   </div>
                   <div>
                     <p className="text-xs font-semibold text-gray-900 dark:text-white">Need a sample format?</p>
-                    <p className="text-[11px] text-gray-400">Download a pre-formatted Excel template with sample columns</p>
+                    <p className="text-[11px] text-gray-400">Download a pre-formatted Excel template with Full Name column</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={downloadSampleTemplate}
-                  className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 text-xs font-semibold text-[#635BFF] flex items-center gap-1.5 shrink-0 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#181B26] hover:bg-gray-100 dark:hover:bg-gray-800 text-xs font-semibold text-[#635BFF] dark:text-[#8881FF] flex items-center gap-1.5 shrink-0 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span>Download .xlsx</span>
@@ -443,7 +443,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete, existin
           {step > 1 && step < 4 ? (
             <button
               onClick={() => setStep(step - 1)}
-              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Back</span>
@@ -454,7 +454,7 @@ export default function ImportModal({ isOpen, onClose, onImportComplete, existin
             {step < 4 && (
               <button
                 onClick={handleClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 cursor-pointer"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
               >
                 Cancel
               </button>

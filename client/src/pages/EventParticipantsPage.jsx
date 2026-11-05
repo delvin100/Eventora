@@ -1,25 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useOutletContext } from 'react-router-dom';
 import EventParticipantsView from '../components/participants/EventParticipantsView';
 import { eventService } from '../services/eventService';
 
 export default function EventParticipantsPage() {
-  const { eventId } = useParams();
-  const [eventName, setEventName] = useState('Event');
+  const { eventId: paramId } = useParams();
+  const outletCtx = useOutletContext();
+  const [resolvedEvent, setResolvedEvent] = useState(outletCtx?.event || null);
 
   useEffect(() => {
-    async function fetchName() {
+    if (outletCtx?.event) {
+      setResolvedEvent(outletCtx.event);
+      return;
+    }
+    async function fetchEvent() {
       try {
-        const ev = await eventService.getEventById(eventId);
-        if (ev?.name) {
-          setEventName(ev.name);
-        }
+        const ev = await eventService.getEventById(paramId);
+        if (ev) setResolvedEvent(ev);
       } catch (e) {
-        console.error('Failed to fetch event name from Supabase:', e);
+        console.error('Failed to fetch event:', e);
       }
     }
-    fetchName();
-  }, [eventId]);
+    fetchEvent();
+  }, [paramId, outletCtx?.event]);
 
-  return <EventParticipantsView eventId={eventId} eventName={eventName} />;
+  const effectiveId = resolvedEvent?.id || outletCtx?.eventId || paramId;
+  const effectiveName = resolvedEvent?.name || 'Event';
+
+  return <EventParticipantsView eventId={effectiveId} eventName={effectiveName} />;
 }

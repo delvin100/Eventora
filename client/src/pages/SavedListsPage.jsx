@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Plus, ListOrdered, Copy, Trash2, CalendarDays, Loader2 } from 'lucide-react';
 import CreateListModal from '../components/lists/CreateListModal';
 import CopyToListModal from '../components/lists/CopyToListModal';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 import { listService } from '../services/listService';
 import { eventService } from '../services/eventService';
 import { participantService } from '../services/participantService';
+import { formatDate } from '../utils/dateUtils';
 
 export default function SavedListsPage() {
   const [lists, setLists] = useState([]);
@@ -13,6 +15,9 @@ export default function SavedListsPage() {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedListToCopy, setSelectedListToCopy] = useState(null);
+  const [listToDelete, setListToDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
   const loadData = async () => {
     try {
@@ -36,22 +41,26 @@ export default function SavedListsPage() {
 
   const handleCreateList = async (newList) => {
     try {
+      setErrorMsg('');
       await listService.createSavedList(newList);
       await loadData();
     } catch (err) {
       console.error('Failed to create saved list:', err);
-      alert('Failed to save list to Supabase.');
+      setErrorMsg('Failed to save list: ' + (err.message || 'Unknown error'));
     }
   };
 
-  const handleDeleteList = async (id, name) => {
-    if (window.confirm(`Delete reusable list "${name}"?`)) {
-      try {
-        await listService.deleteSavedList(id);
-        setLists(prev => prev.filter(l => l.id !== id));
-      } catch (err) {
-        console.error('Failed to delete saved list:', err);
-      }
+  const confirmDeleteList = async () => {
+    if (!listToDelete) return;
+    try {
+      setDeleteLoading(true);
+      await listService.deleteSavedList(listToDelete.id);
+      setLists(prev => prev.filter(l => l.id !== listToDelete.id));
+      setListToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete saved list:', err);
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
@@ -72,7 +81,7 @@ export default function SavedListsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Reusable Lists</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Maintain master participant rosters directly in Supabase that can be copied into any event without altering the source.
+            Maintain master participant rosters that can be copied into any event without altering the source.
           </p>
         </div>
 
@@ -88,7 +97,7 @@ export default function SavedListsPage() {
       {loading ? (
         <div className="py-20 text-center flex flex-col items-center justify-center gap-3 text-xs text-gray-400">
           <Loader2 className="w-6 h-6 animate-spin text-[#635BFF]" />
-          <span>Loading reusable lists from Supabase...</span>
+          <span>Loading reusable lists...</span>
         </div>
       ) : lists.length === 0 ? (
         <div className="py-20 px-6 text-center bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 rounded-3xl space-y-3">
@@ -121,7 +130,7 @@ export default function SavedListsPage() {
                       {list.category || 'General'}
                     </span>
                     <button
-                      onClick={() => handleDeleteList(list.id, list.name)}
+                      onClick={() => setListToDelete(list)}
                       className="text-gray-400 hover:text-red-500 p-1 rounded-lg transition-colors cursor-pointer"
                       title="Delete list"
                     >
@@ -152,7 +161,7 @@ export default function SavedListsPage() {
 
                 <div className="pt-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
                   <span className="text-[11px] text-gray-400">
-                    {list.created_at ? new Date(list.created_at).toLocaleDateString() : 'Saved'}
+                    {list.created_at ? formatDate(list.created_at) : 'Saved'}
                   </span>
                   <button
                     onClick={() => setSelectedListToCopy(list)}
@@ -180,6 +189,18 @@ export default function SavedListsPage() {
         list={selectedListToCopy}
         events={events}
         onConfirmCopy={handleConfirmCopy}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(listToDelete)}
+        title={listToDelete ? `Delete "${listToDelete.name}"?` : 'Delete List'}
+        message="Are you sure you want to delete this reusable list? All list entries will be permanently deleted."
+        confirmText="Delete List"
+        cancelText="Cancel"
+        isDanger={true}
+        loading={deleteLoading}
+        onConfirm={confirmDeleteList}
+        onCancel={() => setListToDelete(null)}
       />
     </div>
   );

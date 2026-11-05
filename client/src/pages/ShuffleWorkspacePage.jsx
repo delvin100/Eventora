@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useOutletContext, Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import { Users, Shuffle, RotateCcw } from 'lucide-react';
 
@@ -12,7 +12,9 @@ import { participantService } from '../services/participantService';
 import { resultService } from '../services/resultService';
 
 export default function ShuffleWorkspacePage() {
-  const { eventId } = useParams();
+  const { eventId: paramId } = useParams();
+  const outletCtx = useOutletContext();
+  const eventId = outletCtx?.eventId || outletCtx?.event?.id || paramId;
 
   const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);

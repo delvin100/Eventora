@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, Check, AlertCircle } from 'lucide-react';
 import { eventService } from '../services/eventService';
+import { slugify } from '../utils/slugUtils';
 
 export default function NewEventPage() {
   const navigate = useNavigate();
@@ -34,10 +35,10 @@ export default function NewEventPage() {
         accent_color: accentColor
       });
 
-      navigate(`/app/events/${createdEvent.id}`);
+      navigate(`/app/events/${slugify(createdEvent.name)}`);
     } catch (err) {
-      console.error('Failed to create event in Supabase:', err);
-      setErrorMsg(err.message || 'Failed to create event in Supabase.');
+      console.error('Failed to create event:', err);
+      setErrorMsg(err.message || 'Failed to create event.');
     } finally {
       setLoading(false);
     }
@@ -57,7 +58,7 @@ export default function NewEventPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Create New Event</h1>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Persisted directly to your Supabase PostgreSQL database.
+            Configure your new event workspace to manage participants and activities.
           </p>
         </div>
 
@@ -71,7 +72,7 @@ export default function NewEventPage() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Event Name *
+              Event Name
             </label>
             <input
               type="text"

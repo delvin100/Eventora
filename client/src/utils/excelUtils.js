@@ -1,49 +1,22 @@
 import * as XLSX from 'xlsx';
+import { formatDate } from './dateUtils';
 
 /**
  * Generates and downloads a clean sample Excel template for importing participants.
  */
 export function downloadSampleTemplate() {
   const sampleData = [
-    {
-      'Full Name': 'Emma Watson',
-      'Identifier / ID': 'STU-1001',
-      'Department / Group': 'Science',
-      'Notes': 'Class Rep'
-    },
-    {
-      'Full Name': 'Liam Davis',
-      'Identifier / ID': 'STU-1002',
-      'Department / Group': 'Arts',
-      'Notes': ''
-    },
-    {
-      'Full Name': 'Sophia Chen',
-      'Identifier / ID': 'STU-1003',
-      'Department / Group': 'Science',
-      'Notes': ''
-    },
-    {
-      'Full Name': 'Noah Miller',
-      'Identifier / ID': 'STU-1004',
-      'Department / Group': 'Commerce',
-      'Notes': ''
-    },
-    {
-      'Full Name': 'Olivia Jones',
-      'Identifier / ID': 'STU-1005',
-      'Department / Group': 'Arts',
-      'Notes': ''
-    }
+    { 'Full Name': 'Emma Watson' },
+    { 'Full Name': 'Liam Davis' },
+    { 'Full Name': 'Sophia Chen' },
+    { 'Full Name': 'Noah Miller' },
+    { 'Full Name': 'Olivia Jones' }
   ];
 
   const worksheet = XLSX.utils.json_to_sheet(sampleData);
-  // Set nice column widths
+  // Set nice column width for Full Name
   worksheet['!cols'] = [
-    { wch: 22 }, // Full Name
-    { wch: 18 }, // ID
-    { wch: 22 }, // Department
-    { wch: 20 }  // Notes
+    { wch: 30 } // Full Name
   ];
 
   const workbook = XLSX.utils.book_new();
@@ -101,19 +74,13 @@ export function exportParticipantsToExcel(participants, eventName = 'Event') {
 
   const rows = participants.map((p, idx) => ({
     '#': idx + 1,
-    'Participant Name': sanitize(p.name),
-    'Identifier / ID': sanitize(p.external_identifier),
-    'Category / Group': sanitize(p.metadata?.department || p.category || ''),
-    'Added Date': p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'
+    'Full Name': sanitize(p.name)
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(rows);
   worksheet['!cols'] = [
-    { wch: 6 },
-    { wch: 26 },
-    { wch: 20 },
-    { wch: 22 },
-    { wch: 16 }
+    { wch: 8 },
+    { wch: 32 }
   ];
 
   const workbook = XLSX.utils.book_new();

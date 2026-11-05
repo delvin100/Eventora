@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Users,
   UserPlus,
@@ -12,13 +12,72 @@ import {
   CheckSquare,
   Square,
   AlertCircle,
-  FileCheck
+  FileCheck,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { participantService } from '../../services/participantService';
 import { exportParticipantsToExcel } from '../../utils/excelUtils';
 import AddParticipantModal from './AddParticipantModal';
 import BulkAddModal from './BulkAddModal';
 import ImportModal from './ImportModal';
+import ConfirmDialog from '../common/ConfirmDialog';
+
+function StylishDropdown({ value, onChange, options, minWidth = 'w-48' }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selected = options.find(o => o.value === value) || options[0];
+
+  return (
+    <div className="relative inline-block" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="h-10 px-3.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-gray-700 hover:bg-gray-50/60 dark:hover:bg-[#1B1E2D] flex items-center justify-between gap-2.5 transition-all cursor-pointer shadow-xs focus:outline-none focus:ring-2 focus:ring-[#635BFF]/25 whitespace-nowrap"
+      >
+        <span>{selected?.label || value}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-gray-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180 text-[#635BFF]' : ''}`} />
+      </button>
+
+      {isOpen && (
+        <div className={`absolute left-0 mt-1.5 ${minWidth} rounded-xl bg-white dark:bg-[#181B26] border border-gray-200 dark:border-gray-700 shadow-xl py-1 z-30 animate-in fade-in zoom-in-95 duration-100`}>
+          {options.map((opt) => {
+            const isMatch = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value);
+                  setIsOpen(false);
+                }}
+                className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                  isMatch
+                    ? 'bg-indigo-50/70 dark:bg-indigo-950/60 text-[#635BFF] dark:text-[#8881FF] font-semibold'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/80 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <span>{opt.label}</span>
+                {isMatch && <Check className="w-3.5 h-3.5 text-[#635BFF] dark:text-[#8881FF] shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function EventParticipantsView({ eventId, eventName = 'Event' }) {
   const [participants, setParticipants] = useState([]);
@@ -35,6 +94,9 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
 
   // Multi-selection state
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // Confirm delete dialog state
+  const [confirmDeleteConfig, setConfirmDeleteConfig] = useState(null);
 
   // Load participants
   const loadData = async () => {
@@ -54,22 +116,9 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
     setSelectedIds(new Set());
   }, [eventId]);
 
-  // Unique departments for filter
-  const departments = ['All', ...new Set(
-    participants
-      .map(p => p.metadata?.department || p.category)
-      .filter(Boolean)
-  )];
-
   // Filter & Sort
   const filtered = participants
-    .filter(p => {
-      const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) ||
-        (p.external_identifier && p.external_identifier.toLowerCase().includes(search.toLowerCase()));
-      const dept = p.metadata?.department || p.category || '';
-      const matchDept = selectedDept === 'All' || dept === selectedDept;
-      return matchSearch && matchDept;
-    })
+    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       if (sortBy === 'az') return a.name.localeCompare(b.name);
       if (sortBy === 'za') return b.name.localeCompare(a.name);
@@ -94,20 +143,30 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
     loadData();
   };
 
-  const handleDeleteOne = async (id, name) => {
-    if (window.confirm(`Remove "${name}" from this event?`)) {
-      await participantService.deleteParticipant(eventId, id);
-      loadData();
-    }
+  const handleDeleteOne = (id, name) => {
+    setConfirmDeleteConfig({
+      title: `Remove "${name}"?`,
+      message: `Are you sure you want to remove "${name}" from this event?`,
+      confirmText: 'Remove Participant',
+      action: async () => {
+        await participantService.deleteParticipant(eventId, id);
+        loadData();
+      }
+    });
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (selectedIds.size === 0) return;
-    if (window.confirm(`Are you sure you want to remove ${selectedIds.size} selected participants?`)) {
-      await participantService.bulkDelete(eventId, Array.from(selectedIds));
-      setSelectedIds(new Set());
-      loadData();
-    }
+    setConfirmDeleteConfig({
+      title: `Remove ${selectedIds.size} Participants?`,
+      message: `Are you sure you want to remove all ${selectedIds.size} selected participants from this event?`,
+      confirmText: `Remove ${selectedIds.size} Participants`,
+      action: async () => {
+        await participantService.bulkDelete(eventId, Array.from(selectedIds));
+        setSelectedIds(new Set());
+        loadData();
+      }
+    });
   };
 
   const handleToggleSelectAll = () => {
@@ -133,7 +192,7 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
     <div className="space-y-5">
       {/* Action Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        {/* Search & Dept Filter */}
+        {/* Search & Sort */}
         <div className="flex flex-1 items-center gap-3">
           <div className="relative flex-1 max-w-sm">
             <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
@@ -141,31 +200,22 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or ID code..."
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
+              placeholder="Search by name..."
+              className="w-full h-10 pl-10 pr-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 shadow-xs"
             />
           </div>
 
-          {departments.length > 2 && (
-            <select
-              value={selectedDept}
-              onChange={(e) => setSelectedDept(e.target.value)}
-              className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs text-gray-700 dark:text-gray-300"
-            >
-              {departments.map(d => <option key={d} value={d}>Group: {d}</option>)}
-            </select>
-          )}
-
-          <select
+          <StylishDropdown
             value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs text-gray-700 dark:text-gray-300"
-          >
-            <option value="az">Sort: A to Z</option>
-            <option value="za">Sort: Z to A</option>
-            <option value="newest">Sort: Recently Added</option>
-            <option value="oldest">Sort: First Added</option>
-          </select>
+            onChange={setSortBy}
+            options={[
+              { value: 'az', label: 'Sort: A to Z' },
+              { value: 'za', label: 'Sort: Z to A' },
+              { value: 'newest', label: 'Sort: Recently Added' },
+              { value: 'oldest', label: 'Sort: First Added' }
+            ]}
+            minWidth="w-48"
+          />
         </div>
 
         {/* Buttons */}
@@ -173,7 +223,7 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
           {selectedIds.size > 0 && (
             <button
               onClick={handleBulkDelete}
-              className="px-3.5 py-2 rounded-xl bg-red-50 dark:bg-red-950/40 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60 text-xs font-semibold flex items-center gap-1.5 hover:bg-red-100 transition-colors cursor-pointer"
+              className="h-10 px-3.5 rounded-xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/60 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-700 dark:hover:text-red-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs"
             >
               <Trash2 className="w-3.5 h-3.5" />
               <span>Delete Selected ({selectedIds.size})</span>
@@ -182,26 +232,26 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
 
           <button
             onClick={() => setIsImportOpen(true)}
-            className="px-3.5 py-2 rounded-xl bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="h-10 px-3.5 rounded-xl bg-gray-100/90 dark:bg-gray-800/90 hover:bg-gray-200 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-100 hover:text-gray-900 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
             title="Import Excel or CSV file"
           >
-            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            <FileSpreadsheet className="w-4 h-4 text-emerald-500" />
             <span>Import Excel</span>
           </button>
 
           <button
             onClick={handleExport}
             disabled={participants.length === 0}
-            className="px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+            className="h-10 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#161925] hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 shadow-xs"
             title="Export roster to spreadsheet"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 text-gray-400" />
             <span>Export</span>
           </button>
 
           <button
             onClick={() => setIsBulkOpen(true)}
-            className="px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="h-10 px-3.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#161925] hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-800 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
           >
             <AlignLeft className="w-4 h-4 text-[#635BFF]" />
             <span>Bulk Add</span>
@@ -209,7 +259,7 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
 
           <button
             onClick={() => { setEditingItem(null); setIsAddOpen(true); }}
-            className="px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25 flex items-center gap-1.5 transition-all cursor-pointer"
+            className="h-10 px-4 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25 flex items-center gap-1.5 transition-all cursor-pointer"
           >
             <UserPlus className="w-4 h-4" />
             <span>Add Single</span>
@@ -233,13 +283,13 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
                 onClick={() => setIsImportOpen(true)}
-                className="px-4 py-2 rounded-xl bg-[#635BFF] text-white text-xs font-semibold shadow-md cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25 transition-all cursor-pointer"
               >
                 Import from Excel
               </button>
               <button
                 onClick={() => setIsBulkOpen(true)}
-                className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200 cursor-pointer"
+                className="px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-all cursor-pointer"
               >
                 Quick Paste Names
               </button>
@@ -247,26 +297,24 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-xs">
               <thead className="bg-gray-50/80 dark:bg-[#141722] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider border-b border-gray-200/80 dark:border-gray-800">
                 <tr>
-                  <th className="px-4 py-3 w-10">
+                  <th className="px-4 py-3.5 w-12 text-center">
                     <button
                       onClick={handleToggleSelectAll}
-                      className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer"
+                      className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer inline-flex items-center justify-center"
                     >
-                      {selectedIds.size === filtered.length ? (
+                      {selectedIds.size === filtered.length && filtered.length > 0 ? (
                         <CheckSquare className="w-4 h-4 text-[#635BFF]" />
                       ) : (
                         <Square className="w-4 h-4" />
                       )}
                     </button>
                   </th>
-                  <th className="px-4 py-3 w-12 text-center">#</th>
-                  <th className="px-4 py-3">Participant Name</th>
-                  <th className="px-4 py-3">Identifier / Code</th>
-                  <th className="px-4 py-3">Group / Dept</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+                  <th className="px-4 py-3.5 w-16 text-center">#</th>
+                  <th className="px-6 py-3.5 text-center">Participant Name</th>
+                  <th className="px-4 py-3.5 w-28 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800/80 text-gray-700 dark:text-gray-300">
@@ -279,10 +327,10 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
                         isSelected ? 'bg-indigo-50/40 dark:bg-indigo-950/30' : ''
                       }`}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-4 py-3 text-center">
                         <button
                           onClick={() => handleToggleSelectOne(p.id)}
-                          className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer"
+                          className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 cursor-pointer inline-flex items-center justify-center"
                         >
                           {isSelected ? (
                             <CheckSquare className="w-4 h-4 text-[#635BFF]" />
@@ -291,29 +339,19 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
                           )}
                         </button>
                       </td>
-                      <td className="px-4 py-3 text-center text-gray-400 font-mono">
+                      <td className="px-4 py-3 text-center text-gray-400 font-mono font-medium">
                         {idx + 1}
                       </td>
-                      <td className="px-4 py-3 font-semibold text-gray-900 dark:text-white flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF] text-[11px] font-bold flex items-center justify-center shrink-0">
-                          {p.name.charAt(0).toUpperCase()}
+                      <td className="px-6 py-3 text-center font-semibold text-gray-900 dark:text-white">
+                        <div className="inline-flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF] text-[11px] font-bold flex items-center justify-center shrink-0 border border-indigo-200/50 dark:border-indigo-800/50">
+                            {p.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span>{p.name}</span>
                         </div>
-                        <span>{p.name}</span>
                       </td>
-                      <td className="px-4 py-3 text-gray-500 font-mono">
-                        {p.external_identifier || '—'}
-                      </td>
-                      <td className="px-4 py-3">
-                        {(p.metadata?.department || p.category) ? (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
-                            {p.metadata?.department || p.category}
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="px-4 py-3 text-center">
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => { setEditingItem(p); setIsAddOpen(true); }}
                             className="p-1.5 rounded-lg text-gray-400 hover:text-[#635BFF] hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
@@ -365,6 +403,22 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
         onClose={() => setIsImportOpen(false)}
         onImportComplete={handleBulkAdd}
         existingParticipants={participants}
+      />
+
+      <ConfirmDialog
+        isOpen={Boolean(confirmDeleteConfig)}
+        title={confirmDeleteConfig?.title || 'Are you sure?'}
+        message={confirmDeleteConfig?.message || 'This action cannot be undone.'}
+        confirmText={confirmDeleteConfig?.confirmText || 'Delete'}
+        cancelText="Cancel"
+        isDanger={true}
+        onConfirm={async () => {
+          if (confirmDeleteConfig?.action) {
+            await confirmDeleteConfig.action();
+          }
+          setConfirmDeleteConfig(null);
+        }}
+        onCancel={() => setConfirmDeleteConfig(null)}
       />
     </div>
   );

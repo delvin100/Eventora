@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   GraduationCap,
@@ -10,7 +10,8 @@ import {
   BookOpen,
   Heart,
   Award,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from 'lucide-react';
 import { participantService } from '../services/participantService';
 import { eventService } from '../services/eventService';
@@ -85,7 +86,7 @@ const TEMPLATES = [
   {
     id: 'lucky-draw',
     title: 'Company Lucky Draw & Raffle',
-    desc: 'Visual wheel with celebratory confetti, winner removal, and prize tier tracking.',
+    desc: 'Visual wheel with celebratory animations, winner removal, and prize tier tracking.',
     category: 'Lucky draw',
     icon: Gift,
     color: '#159A72',
@@ -111,9 +112,11 @@ const TEMPLATES = [
 
 export default function TemplatesPage() {
   const navigate = useNavigate();
+  const [errorMsg, setErrorMsg] = useState('');
 
   const handleUseTemplate = async (tpl) => {
     try {
+      setErrorMsg('');
       // 1. Create live event in Supabase
       const createdEvent = await eventService.createEvent({
         name: tpl.title,
@@ -133,12 +136,18 @@ export default function TemplatesPage() {
       navigate(`/app/events/${createdEvent.id}`);
     } catch (e) {
       console.error('Failed to preseed template in Supabase:', e);
-      alert('Error creating event in Supabase. Please ensure you are logged in.');
+      setErrorMsg('Error creating event from template. Please check your connection and login status.');
     }
   };
 
   return (
     <div className="space-y-6">
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-sm flex items-center gap-3 animate-in fade-in">
+          <AlertCircle className="w-5 h-5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Event Templates</h1>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">

@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Trophy, Shuffle, Users, Calendar, Copy, Check } from 'lucide-react';
+import { formatDateTime } from '../../utils/dateUtils';
 
 export default function ResultDetailModal({ isOpen, onClose, result }) {
   const [copied, setCopied] = React.useState(false);
@@ -32,7 +33,7 @@ export default function ResultDetailModal({ isOpen, onClose, result }) {
                 {result.name}
               </h3>
               <p className="text-[11px] text-gray-400">
-                {result.event_name || result.event} • {result.created_at || result.date}
+                {result.event_name || result.event} • {formatDateTime(result.created_at || result.date)}
               </p>
             </div>
           </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, ArrowRight, Zap, AlertCircle, GraduationCap, Briefcase, Gift, Heart } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Zap, AlertCircle, GraduationCap, Briefcase, Gift, Heart, Eye, EyeOff } from 'lucide-react';
 import EventoraLogo from '../components/EventoraLogo';
 import { useAuth } from '../context/AuthContext';
 
@@ -11,6 +11,7 @@ export default function SignupPage() {
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [usageType, setUsageType] = useState('education');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -24,15 +25,31 @@ export default function SignupPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!email || !password || !displayName) {
-      setErrorMsg('Please fill out all required fields.');
+    if (!displayName.trim()) {
+      setErrorMsg('Please enter your name or organization.');
+      return;
+    }
+    if (!email.trim()) {
+      setErrorMsg('Please enter your email address.');
+      return;
+    }
+    if (!password) {
+      setErrorMsg('Please enter a password.');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters.');
+      return;
+    }
+    if (!usageType) {
+      setErrorMsg('Please select your primary intended use.');
       return;
     }
 
     try {
       setLoading(true);
       setErrorMsg('');
-      const { error } = await signUp(email, password, displayName, usageType);
+      const { error } = await signUp(email.trim(), password, displayName.trim(), usageType);
       if (error) {
         setErrorMsg(error.message || 'Failed to create account.');
       } else {
@@ -113,14 +130,22 @@ export default function SignupPage() {
               <div className="relative">
                 <Lock className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
                   required
                   minLength={6}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 focus:border-[#635BFF]"
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 focus:border-[#635BFF]"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-3 top-2.5 p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-lg transition-colors cursor-pointer focus:outline-none"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 

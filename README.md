@@ -103,22 +103,23 @@ Eventora/
 
 ### 2. Running Locally
 
-#### Run the Frontend
+#### Run Both Frontend & Backend Concurrently (Recommended)
+From the root directory:
 ```bash
-cd client
-npm install
 npm run dev
 ```
-Open **[http://localhost:5173](http://localhost:5173)** in your browser.
+This runs both the backend Express server on port `5000` and the Vite React frontend on port `5173` simultaneously.
 
-#### Run the Backend API
-In a second terminal:
+#### Or Run Independently
 ```bash
-cd server
-npm install
-npm run dev
+# Frontend
+npm run dev:client
+# or: cd client && npm run dev
+
+# Backend
+npm run dev:server
+# or: cd server && npm run dev
 ```
-API runs on **[http://localhost:5000](http://localhost:5000)** (Health check: `http://localhost:5000/api/v1/health`).
 
 ---
 

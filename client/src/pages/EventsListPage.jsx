@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Search, CalendarDays, Star, ArrowRight } from 'lucide-react';
 import { eventService } from '../services/eventService';
+import { slugify } from '../utils/slugUtils';
 
 export default function EventsListPage() {
   const [events, setEvents] = useState([]);
@@ -33,6 +34,8 @@ export default function EventsListPage() {
   };
 
   const filtered = events.filter(e => {
+    // Keep Special Events separated from standard events
+    if (e.category === 'Special Event') return false;
     const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
       (e.description && e.description.toLowerCase().includes(search.toLowerCase()));
     const matchesCat = selectedCategory === 'All' || e.category === selectedCategory;
@@ -91,7 +94,7 @@ export default function EventsListPage() {
 
       {/* Events Grid */}
       {loading ? (
-        <div className="py-16 text-center text-xs text-gray-400">Loading events from Supabase...</div>
+        <div className="py-16 text-center text-xs text-gray-400">Loading events...</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filtered.map(event => (
@@ -127,7 +130,7 @@ export default function EventsListPage() {
                   {event.participantCount || 0} Participants
                 </span>
                 <Link
-                  to={`/app/events/${event.id}`}
+                  to={`/app/events/${slugify(event.name)}`}
                   className="inline-flex items-center gap-1.5 text-xs font-bold text-[#635BFF] hover:underline"
                 >
                   <span>Open Event</span>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, NavLink, Outlet } from 'react-router-dom';
+import { useParams, Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   Users,
@@ -7,15 +7,26 @@ import {
   Shuffle,
   UsersRound,
   History,
-  Calendar,
-  Award
+  Award,
+  Settings,
+  Crown,
+  FileText
 } from 'lucide-react';
 import { eventService } from '../services/eventService';
+import { specialEventService } from '../services/specialEventService';
+import { specialEventLiveService } from '../services/specialEventLiveService';
+import SpecialEventDetailedReportModal from '../components/specialEvents/SpecialEventDetailedReportModal';
+import { slugify } from '../utils/slugUtils';
 
 export default function EventWorkspace() {
   const { eventId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isReportOpen, setIsReportOpen] = useState(false);
+  const [reportScores, setReportScores] = useState([]);
+  const [specialSettings, setSpecialSettings] = useState(null);
 
   useEffect(() => {
     async function fetchEvent() {
@@ -23,6 +34,25 @@ export default function EventWorkspace() {
         setLoading(true);
         const data = await eventService.getEventById(eventId);
         setEvent(data);
+        if (data?.category === 'Special Event') {
+          try {
+            const known = JSON.parse(sessionStorage.getItem('eventora_special_event_ids') || '[]');
+            const slug = data.name ? slugify(data.name) : '';
+            let changed = false;
+            if (data.id && !known.includes(data.id)) { known.push(data.id); changed = true; }
+            if (slug && !known.includes(slug)) { known.push(slug); changed = true; }
+            if (changed) sessionStorage.setItem('eventora_special_event_ids', JSON.stringify(known));
+          } catch (_) {}
+        }
+        if (data?.name) {
+          document.title = `${data.name} | Eventora`;
+          const slug = slugify(data.name);
+          const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(eventId);
+          if (isUUID && slug) {
+            const newPath = location.pathname.replace(eventId, slug);
+            navigate(newPath + location.search, { replace: true, state: location.state });
+          }
+        }
       } catch (err) {
         console.error('Failed to load event from Supabase:', err);
       } finally {
@@ -30,19 +60,38 @@ export default function EventWorkspace() {
       }
     }
     fetchEvent();
+
+    return () => {
+      document.title = 'Eventora';
+    };
   }, [eventId]);
 
+  const isSpecialEvent = event?.category === 'Special Event' || location.state?.fromSpecialEvents;
+  const backPath = isSpecialEvent ? '/app/special-events' : '/app/events';
+  const backLabel = isSpecialEvent ? 'Special Events' : 'All Events';
+
+  const currentSlug = event?.name ? slugify(event.name) : eventId;
+
   const tabs = [
-    { name: 'Participants', to: `/app/events/${eventId}`, end: true, icon: Users },
-    { name: 'Wheel', to: `/app/events/${eventId}/wheel`, icon: RotateCw },
-    { name: 'Tasks & Missions', to: `/app/events/${eventId}/tasks`, icon: Award },
-    { name: 'Shuffle', to: `/app/events/${eventId}/shuffle`, icon: Shuffle },
-    { name: 'Groups', to: `/app/events/${eventId}/groups`, icon: UsersRound },
-    { name: 'Results', to: `/app/events/${eventId}/results`, icon: History },
+    { name: 'Participants', to: `/app/events/${currentSlug}`, end: true, icon: Users },
+    { name: 'Wheel', to: `/app/events/${currentSlug}/wheel`, icon: RotateCw },
+    { name: 'Tasks & Missions', to: `/app/events/${currentSlug}/tasks`, icon: Award },
+    { name: 'Shuffle', to: `/app/events/${currentSlug}/shuffle`, icon: Shuffle },
+    { name: 'Groups', to: `/app/events/${currentSlug}/groups`, icon: UsersRound },
+    { name: 'Results', to: `/app/events/${currentSlug}/results`, icon: History },
   ];
 
+  // For Special Events only: add Settings tab after Results
+  if (isSpecialEvent) {
+    tabs.push({
+      name: 'Settings',
+      to: `/app/events/${currentSlug}/settings`,
+      icon: Settings
+    });
+  }
+
   if (loading) {
-    return <div className="py-20 text-center text-xs text-gray-400">Loading workspace from Supabase...</div>;
+    return <div className="py-20 text-center text-xs text-gray-400">Loading workspace...</div>;
   }
 
   if (!event) {
@@ -59,28 +108,33 @@ export default function EventWorkspace() {
 
   return (
     <div className="space-y-6">
-      {/* Back button */}
-      <div>
+      {/* Back button & Breadcrumb */}
+      <nav className="flex items-center gap-2 text-xs font-semibold text-gray-500">
         <Link
-          to="/app/events"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white"
+          to={backPath}
+          className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>All Events</span>
+          <span>{backLabel}</span>
         </Link>
-      </div>
+        <span className="text-gray-300 dark:text-gray-700">/</span>
+        <span className="text-gray-900 dark:text-white font-bold">{event.name}</span>
+      </nav>
 
       {/* Workspace Header Banner */}
       <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF]">
-              {event.category || 'General'}
-            </span>
-            <span className="text-xs text-gray-400 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Supabase Cloud Sync</span>
-            </span>
+            {isSpecialEvent ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/10 dark:bg-[#241C52] border border-violet-500/30 text-violet-700 dark:text-violet-300 text-[11px] font-extrabold uppercase tracking-wider shadow-xs">
+                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>Special Event</span>
+              </div>
+            ) : (
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF]">
+                {event.category || 'General'}
+              </span>
+            )}
           </div>
 
           <h1 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">
@@ -109,6 +163,7 @@ export default function EventWorkspace() {
               key={tab.name}
               to={tab.to}
               end={tab.end}
+              state={isSpecialEvent ? { fromSpecialEvents: true } : undefined}
               className={({ isActive }) =>
                 `flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 transition-all whitespace-nowrap ${
                   isActive
@@ -126,8 +181,20 @@ export default function EventWorkspace() {
 
       {/* Sub-view / Tab content outlet */}
       <div>
-        <Outlet />
+        <Outlet context={{ event, eventId: event?.id }} />
       </div>
+
+      {/* Special Event Detailed Report Modal */}
+      <SpecialEventDetailedReportModal
+        isOpen={isReportOpen}
+        onClose={() => setIsReportOpen(false)}
+        eventId={event?.id}
+        eventName={event?.name || 'Special Event'}
+        eventCategory={event?.category || 'Special Event'}
+        participants={event?.participants || []}
+        specialSettings={specialSettings}
+        scores={reportScores}
+      />
     </div>
   );
 }

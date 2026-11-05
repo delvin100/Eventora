@@ -8,6 +8,7 @@ import { requireAuth } from './middleware/auth.js';
 import eventRoutes from './routes/eventRoutes.js';
 import participantRoutes from './routes/participantRoutes.js';
 import resultRoutes from './routes/resultRoutes.js';
+import specialEventAuthRoutes from './routes/specialEventAuthRoutes.js';
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.get('/api/v1/me', requireAuth, (req, res) => {
 app.use('/api/v1/events', eventRoutes);
 app.use('/api/v1/events/:eventId/participants', participantRoutes);
 app.use('/api/v1/events/:eventId/results', resultRoutes);
+app.use('/api/v1/ps', specialEventAuthRoutes);
 
 // Error Handling
 app.use(errorHandler);

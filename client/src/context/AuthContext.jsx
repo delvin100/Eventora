@@ -93,7 +93,7 @@ export function AuthProvider({ children }) {
       return { data: null, error: { message: 'Please enter a valid email format.' } };
     }
     if (!supabase) {
-      return { data: null, error: { message: 'Supabase client is not connected.' } };
+      return { data: null, error: { message: 'Database service is temporarily unavailable.' } };
     }
 
     const { data, error } = await supabase.auth.signInWithPassword({
@@ -103,13 +103,13 @@ export function AuthProvider({ children }) {
     return { data, error };
   };
 
-  // Sign up via Supabase
+  // Sign up
   const signUp = async (email, password, displayName, usageType = 'personal') => {
     if (!isValidBasicEmail(email)) {
       return { data: null, error: { message: 'Please enter a valid email format.' } };
     }
     if (!supabase) {
-      return { data: null, error: { message: 'Supabase client is not connected.' } };
+      return { data: null, error: { message: 'Database service is temporarily unavailable.' } };
     }
 
     const { data, error } = await supabase.auth.signUp({

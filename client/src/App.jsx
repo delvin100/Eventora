@@ -15,7 +15,12 @@ import EventWorkspace from './pages/EventWorkspace';
 import SavedListsPage from './pages/SavedListsPage';
 import ResultsHistoryPage from './pages/ResultsHistoryPage';
 import TemplatesPage from './pages/TemplatesPage';
+import SpecialEventsPage from './pages/SpecialEventsPage';
 import SettingsPage from './pages/SettingsPage';
+
+// Prathibha Sangamam Special Event Portal
+import PrathibhaSangamamIndex from './pages/ps/PrathibhaSangamamIndex';
+import PrathibhaLoginPage from './pages/ps/PrathibhaLoginPage';
 
 import EventParticipantsPage from './pages/EventParticipantsPage';
 
@@ -23,6 +28,7 @@ import WheelWorkspacePage from './pages/WheelWorkspacePage';
 import TasksWorkspacePage from './pages/TasksWorkspacePage';
 import ShuffleWorkspacePage from './pages/ShuffleWorkspacePage';
 import GroupsWorkspacePage from './pages/GroupsWorkspacePage';
+import SpecialEventSettingsPage from './pages/SpecialEventSettingsPage';
 
 export default function App() {
   // Pre-warm backend API on initial landing to prevent Render cold starts
@@ -44,6 +50,10 @@ export default function App() {
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
 
+            {/* Prathibha Sangamam Special Event Portal (/ps) */}
+            <Route path="/ps" element={<PrathibhaSangamamIndex />} />
+            <Route path="/ps/login" element={<PrathibhaLoginPage />} />
+
             {/* Authenticated Application Shell */}
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<DashboardOverview />} />
@@ -58,11 +68,13 @@ export default function App() {
                 <Route path="shuffle" element={<ShuffleWorkspacePage />} />
                 <Route path="groups" element={<GroupsWorkspacePage />} />
                 <Route path="results" element={<ResultsHistoryPage />} />
+                <Route path="settings" element={<SpecialEventSettingsPage />} />
               </Route>
 
               <Route path="lists" element={<SavedListsPage />} />
               <Route path="results" element={<ResultsHistoryPage />} />
               <Route path="templates" element={<TemplatesPage />} />
+              <Route path="special-events" element={<SpecialEventsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
 
