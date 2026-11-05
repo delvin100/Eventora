@@ -292,6 +292,22 @@ export default function WheelWorkspacePage() {
   const totalRoundsCount = configuredRounds.length || 2;
   const isFinalRound = currentRoundNumber >= totalRoundsCount;
 
+  const requiredEvaluators = liveState?.requiredEvaluators || [];
+  const submissions = liveState?.submissions || {};
+  const submittedCount = requiredEvaluators.filter(u => Boolean(submissions[u])).length;
+  const isEvalActive = liveState?.status === 'evaluating';
+  const allCurrentEvaluatorsSubmitted = requiredEvaluators.length === 0 || submittedCount >= requiredEvaluators.length;
+
+  // Finish Event button should ONLY appear when:
+  // 1. It is the final round (isFinalRound)
+  // 2. All participants on the wheel in this final round have been evaluated (eligibleParticipants.length === 0)
+  // 3. Both evaluators have completed their submissions for the final evaluation
+  const canShowFinishEventButton =
+    isFinalRound &&
+    allParticipants.length > 0 &&
+    eligibleParticipants.length === 0 &&
+    (!isEvalActive || allCurrentEvaluatorsSubmitted);
+
   const currentRoundObj = configuredRounds.find(r => r.roundNumber === currentRoundNumber) || {
     roundNumber: currentRoundNumber,
     task: liveState?.roundTask || ''
@@ -624,9 +640,9 @@ export default function WheelWorkspacePage() {
               </button>
             )}
 
-            {/* When not finished and on the final round: Finish Event button */}
+            {/* When not finished and on the final round: Finish Event button ONLY when final evaluations are done */}
             {!isEventFinished ? (
-              isFinalRound && (
+              canShowFinishEventButton && (
                 <button
                   type="button"
                   onClick={handleFinishEventClick}
