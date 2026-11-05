@@ -17,10 +17,11 @@ import { specialEventService } from '../services/specialEventService';
 import { specialEventLiveService } from '../services/specialEventLiveService';
 import SpecialEventDetailedReportModal from '../components/specialEvents/SpecialEventDetailedReportModal';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { slugify } from '../utils/slugUtils';
 
 export default function EventWorkspace() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { eventId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -32,21 +33,51 @@ export default function EventWorkspace() {
   const [specialSettings, setSpecialSettings] = useState(null);
 
   useEffect(() => {
+    let isCancelled = false;
+
     async function fetchEvent() {
+      // Wait for auth initialization on page refresh before evaluating permissions
+      if (authLoading) return;
+
       try {
         setLoading(true);
         setAccessDenied(false);
+
+        // Resolve current user (context or active Supabase session)
+        let currentUser = user;
+        if (!currentUser && supabase) {
+          const { data: { session } } = await supabase.auth.getSession();
+          currentUser = session?.user ?? null;
+        }
+
         const data = await eventService.getEventById(eventId);
+        if (isCancelled) return;
+
         setEvent(data);
+
         if (data?.category === 'Special Event') {
-          const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+          const isAdmin =
+            currentUser?.email === 'admin@gmail.com' ||
+            currentUser?.user_metadata?.role === 'admin';
+
           if (!isAdmin) {
+            if (!currentUser) {
+              setAccessDenied(true);
+              setLoading(false);
+              return;
+            }
+
             const grantedUsers = await specialEventService.getSpecialEventUserAccess(data.id);
+            if (isCancelled) return;
+
+            const userEmail = (currentUser?.email || '').toLowerCase().trim();
+            const userId = currentUser?.id;
+
             const hasAccess = grantedUsers.some(u =>
-              (u.id && u.id === user?.id) ||
-              (u.userId && u.userId === user?.id) ||
-              (u.email && user?.email && u.email.toLowerCase() === user.email.toLowerCase())
+              (userId && (u.id === userId || u.userId === userId)) ||
+              (userEmail && u.email && u.email.toLowerCase().trim() === userEmail)
             );
+
             if (!hasAccess) {
               setAccessDenied(true);
               setLoading(false);
@@ -63,6 +94,7 @@ export default function EventWorkspace() {
             if (changed) sessionStorage.setItem('eventora_special_event_ids', JSON.stringify(known));
           } catch (_) {}
         }
+
         if (data?.name) {
           document.title = `${data.name} | Eventora`;
           const slug = slugify(data.name);
@@ -75,15 +107,19 @@ export default function EventWorkspace() {
       } catch (err) {
         console.error('Failed to load event from Supabase:', err);
       } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setLoading(false);
+        }
       }
     }
+
     fetchEvent();
 
     return () => {
+      isCancelled = true;
       document.title = 'Eventora';
     };
-  }, [eventId, user?.id, user?.email]);
+  }, [eventId, user?.id, user?.email, authLoading]);
 
   const isSpecialEvent = event?.category === 'Special Event' || location.state?.fromSpecialEvents;
   const backPath = isSpecialEvent ? '/app/special-events' : '/app/events';
@@ -109,8 +145,13 @@ export default function EventWorkspace() {
     });
   }
 
-  if (loading) {
-    return <div className="py-20 text-center text-xs text-gray-400">Loading workspace...</div>;
+  if (authLoading || loading) {
+    return (
+      <div className="py-20 flex flex-col items-center justify-center gap-3 text-gray-400">
+        <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs">Loading workspace...</p>
+      </div>
+    );
   }
 
   if (accessDenied) {

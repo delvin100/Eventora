@@ -27,7 +27,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { specialEventService } from '../../services/specialEventService';
 
 export default function AppLayout() {
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, loading: authLoading } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,6 +42,8 @@ export default function AppLayout() {
   // Check if user has access to any special event
   useEffect(() => {
     let isMounted = true;
+    if (authLoading) return;
+
     if (isAdmin) {
       setHasSpecialEventAccess(true);
       return;
@@ -56,7 +58,7 @@ export default function AppLayout() {
       setHasSpecialEventAccess(false);
     }
     return () => { isMounted = false; };
-  }, [user?.id, user?.email, isAdmin]);
+  }, [user?.id, user?.email, isAdmin, authLoading]);
 
   const navItems = [
     { name: 'Overview', to: '/app', icon: LayoutDashboard, exact: true },

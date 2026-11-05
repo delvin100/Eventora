@@ -27,7 +27,7 @@ import { formatDate } from '../utils/dateUtils';
 import { slugify } from '../utils/slugUtils';
 
 export default function SpecialEventsPage() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
 
   const [events, setEvents] = useState([]);
@@ -64,8 +64,9 @@ export default function SpecialEventsPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     loadSpecialEvents();
-  }, [user?.id, user?.email]);
+  }, [user?.id, user?.email, authLoading]);
 
   const handleCreateEvent = async (e) => {
     e.preventDefault();
@@ -160,7 +161,7 @@ export default function SpecialEventsPage() {
       )}
 
       {/* Main Content: List or Empty */}
-      {loading ? (
+      {(authLoading || loading) ? (
         <div className="py-20 flex flex-col items-center justify-center gap-3 text-gray-400">
           <div className="w-8 h-8 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm">Loading special events...</p>
