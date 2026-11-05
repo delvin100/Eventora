@@ -243,26 +243,24 @@ export default function SpecialEventsPage() {
                   {event.description || 'Special event with allocated access.'}
                 </p>
 
-                {/* User Allocation Action Pill (Admin only) */}
-                {isAdmin && (
-                  <div
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setAllocationEvent(event);
-                    }}
-                    className="mt-4 p-2.5 rounded-xl bg-gray-50 dark:bg-[#11131C] border border-gray-100 dark:border-gray-800 hover:border-violet-500/60 dark:hover:border-violet-500/60 hover:bg-violet-50/40 dark:hover:bg-violet-950/20 flex items-center justify-between text-xs cursor-pointer transition-all group/alloc"
-                    title="Click to allocate usernames & passwords for this event"
-                  >
-                    <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-                      <span className="font-semibold">User Allocation</span>
-                    </div>
-                    <span className="text-[11px] font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/80 px-2.5 py-1 rounded-lg border border-violet-200/50 dark:border-violet-800/50 group-hover/alloc:bg-violet-600 group-hover/alloc:text-white transition-all flex items-center gap-1">
-                      <span>{event.allocatedUserCount > 0 ? `${event.allocatedUserCount} User${event.allocatedUserCount === 1 ? '' : 's'}` : 'Allocate Users +'}</span>
-                    </span>
+                {/* User Allocation Action Pill */}
+                <div
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setAllocationEvent(event);
+                  }}
+                  className="mt-4 p-2.5 rounded-xl bg-gray-50 dark:bg-[#11131C] border border-gray-100 dark:border-gray-800 hover:border-violet-500/60 dark:hover:border-violet-500/60 hover:bg-violet-50/40 dark:hover:bg-violet-950/20 flex items-center justify-between text-xs cursor-pointer transition-all group/alloc"
+                  title="Click to allocate usernames & passwords for this event"
+                >
+                  <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span className="font-semibold">User Allocation</span>
                   </div>
-                )}
+                  <span className="text-[11px] font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/80 px-2.5 py-1 rounded-lg border border-violet-200/50 dark:border-violet-800/50 group-hover/alloc:bg-violet-600 group-hover/alloc:text-white transition-all flex items-center gap-1">
+                    <span>{event.allocatedUserCount > 0 ? `${event.allocatedUserCount} User${event.allocatedUserCount === 1 ? '' : 's'}` : 'Allocate Users +'}</span>
+                  </span>
+                </div>
               </div>
 
               {/* Card Footer */}

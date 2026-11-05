@@ -819,7 +819,7 @@ router.get('/special-events', async (req, res, next) => {
     const events = (eventsData || []).map(ev => ({
       ...ev,
       participantCount: ev.participants ? ev.participants.length : 0,
-      allocatedUserCount: 0,
+      allocatedUserCount: allocCountMap[ev.id] || 0,
       grantedUserCount: 0
     }));
 
@@ -1017,6 +1017,149 @@ router.get('/events/:eventId/participants', async (req, res, next) => {
 
     if (error) throw error;
     return res.json({ success: true, participants: data || [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/allocations/:eventId
+ * Get allocated credentials for a special event
+ */
+router.get('/allocations/:eventId', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    if (!supabase || !eventId) return res.json({ success: true, allocatedUsers: [] });
+
+    const { data, error } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_allocations')
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error fetching allocations:', error);
+    }
+
+    const list = Array.isArray(data?.result_snapshot) ? data.result_snapshot : [];
+    return res.json({ success: true, allocatedUsers: list });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/allocations/:eventId
+ * Add an allocated user credential for a special event
+ */
+router.post('/allocations/:eventId', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { username, password, accessLevel = 'Operator' } = req.body;
+
+    if (!supabase || !eventId) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments' });
+    }
+
+    const cleanUsername = (username || '').trim();
+    if (!cleanUsername) {
+      return res.status(400).json({ success: false, message: 'Username cannot be empty.' });
+    }
+    if (!password || password.length < 4) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 4 characters.' });
+    }
+
+    const { data: event } = await supabase
+      .from('events')
+      .select('id, owner_id')
+      .eq('id', eventId)
+      .single();
+
+    const { data: existingRecord } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_allocations')
+      .maybeSingle();
+
+    const currentUsers = Array.isArray(existingRecord?.result_snapshot) ? existingRecord.result_snapshot : [];
+
+    if (currentUsers.some(u => u.username.toLowerCase() === cleanUsername.toLowerCase())) {
+      return res.status(400).json({
+        success: false,
+        message: `Username "${cleanUsername}" is already allocated for this event.`
+      });
+    }
+
+    const newUser = {
+      id: 'usr_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      username: cleanUsername,
+      password,
+      access_level: accessLevel,
+      created_at: new Date().toISOString()
+    };
+
+    const updatedUsers = [newUser, ...currentUsers];
+
+    if (existingRecord?.id) {
+      const { error } = await supabase
+        .from('results')
+        .update({ result_snapshot: updatedUsers })
+        .eq('id', existingRecord.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('results')
+        .insert([{
+          event_id: eventId,
+          owner_id: event?.owner_id || 'f92acb4e-09b2-4f1c-ae6f-fc4d6e7601e1',
+          result_name: 'Allocated Access Credentials',
+          operation_type: 'special_event_allocations',
+          result_snapshot: updatedUsers
+        }]);
+      if (error) throw error;
+    }
+
+    return res.json({ success: true, newUser, allocatedUsers: updatedUsers });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/allocations/:eventId/:userId
+ * Delete an allocated user credential
+ */
+router.delete('/allocations/:eventId/:userId', async (req, res, next) => {
+  try {
+    const { eventId, userId } = req.params;
+    if (!supabase || !eventId || !userId) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments' });
+    }
+
+    const { data: existingRecord } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_allocations')
+      .maybeSingle();
+
+    if (!existingRecord?.id) {
+      return res.json({ success: true, allocatedUsers: [] });
+    }
+
+    const currentUsers = Array.isArray(existingRecord.result_snapshot) ? existingRecord.result_snapshot : [];
+    const updatedUsers = currentUsers.filter(u => u.id !== userId);
+
+    const { error } = await supabase
+      .from('results')
+      .update({ result_snapshot: updatedUsers })
+      .eq('id', existingRecord.id);
+
+    if (error) throw error;
+
+    return res.json({ success: true, allocatedUsers: updatedUsers });
   } catch (err) {
     next(err);
   }

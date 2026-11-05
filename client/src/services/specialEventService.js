@@ -152,7 +152,24 @@ export const specialEventService = {
 
   // Get all allocated users (credentials) for a specific special event
   async getAllocatedUsers(eventId) {
-    if (!supabase || !eventId) return [];
+    if (!eventId) return [];
+
+    // 1. Try backend API first (bypasses RLS so granted normal users can also view allocations)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/allocations/${eventId}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.allocatedUsers)) {
+          try {
+            localStorage.setItem('ps_allocated_users_cache', JSON.stringify(json.allocatedUsers));
+          } catch {}
+          return json.allocatedUsers;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Supabase fallback
+    if (!supabase) return [];
     const { data, error } = await supabase
       .from('results')
       .select('id, result_snapshot')
@@ -174,13 +191,36 @@ export const specialEventService = {
 
   // Add an allocated username and password for a special event
   async addAllocatedUser(eventId, { username, password, accessLevel = 'Operator' }) {
-    if (!supabase) throw new Error('Supabase is not configured');
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
-
     const cleanUsername = username.trim();
     if (!cleanUsername) throw new Error('Username cannot be empty');
     if (!password || password.length < 4) throw new Error('Password must be at least 4 characters');
+
+    // 1. Try backend API first (works for both admin & granted normal users)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/allocations/${eventId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: cleanUsername, password, accessLevel })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.newUser) {
+          return json.newUser;
+        }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.message) throw new Error(errJson.message);
+      }
+    } catch (apiErr) {
+      if (apiErr.message && !apiErr.message.includes('fetch')) {
+        throw apiErr;
+      }
+    }
+
+    // 2. Supabase fallback
+    if (!supabase) throw new Error('Supabase is not configured');
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) throw new Error('User not authenticated');
 
     // Fetch existing record
     const { data: existingRecord } = await supabase
@@ -231,6 +271,18 @@ export const specialEventService = {
 
   // Delete an allocated user from a special event
   async deleteAllocatedUser(eventId, userId) {
+    // 1. Try backend API first
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/allocations/${eventId}/${userId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success) return true;
+      }
+    } catch (_) {}
+
+    // 2. Supabase fallback
     if (!supabase) throw new Error('Supabase is not configured');
 
     const { data: existingRecord } = await supabase
