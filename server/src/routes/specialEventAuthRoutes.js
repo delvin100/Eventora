@@ -1023,6 +1023,156 @@ router.get('/events/:eventId/participants', async (req, res, next) => {
 });
 
 /**
+ * POST /api/v1/ps/events/:eventId/participants
+ * Add a participant to a special event
+ */
+router.post('/events/:eventId/participants', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const body = req.body.participant || req.body;
+    const name = (body.name || '').trim();
+    const external_identifier = (body.external_identifier || '').trim();
+    const metadata = body.metadata || {};
+
+    if (!supabase || !eventId || !name) {
+      return res.status(400).json({ success: false, message: 'Event ID and participant name are required.' });
+    }
+
+    const newRecord = {
+      event_id: eventId,
+      name,
+      external_identifier,
+      metadata
+    };
+
+    const { data, error } = await supabase
+      .from('participants')
+      .insert([newRecord])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return res.json({ success: true, participant: data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/events/:eventId/participants/bulk
+ * Bulk add participants to a special event
+ */
+router.post('/events/:eventId/participants/bulk', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const items = req.body.items || req.body.participants || [];
+
+    if (!supabase || !eventId || !Array.isArray(items)) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments.' });
+    }
+
+    const formatted = items.map(item => ({
+      event_id: eventId,
+      name: (item.name || '').trim(),
+      external_identifier: (item.external_identifier || item.id || '').trim(),
+      metadata: item.metadata || {}
+    })).filter(p => p.name.length > 0);
+
+    if (formatted.length === 0) {
+      return res.json({ success: true, participants: [] });
+    }
+
+    const { data, error } = await supabase
+      .from('participants')
+      .insert(formatted)
+      .select();
+
+    if (error) throw error;
+    return res.json({ success: true, participants: data || [] });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/v1/ps/events/:eventId/participants/:participantId
+ * Update a participant in a special event
+ */
+router.put('/events/:eventId/participants/:participantId', async (req, res, next) => {
+  try {
+    const { eventId, participantId } = req.params;
+    const updates = req.body.updates || req.body;
+
+    if (!supabase || !eventId || !participantId) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments.' });
+    }
+
+    const { data, error } = await supabase
+      .from('participants')
+      .update(updates)
+      .eq('id', participantId)
+      .eq('event_id', eventId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return res.json({ success: true, participant: data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/events/:eventId/participants/:participantId
+ * Delete a participant from a special event
+ */
+router.delete('/events/:eventId/participants/:participantId', async (req, res, next) => {
+  try {
+    const { eventId, participantId } = req.params;
+    if (!supabase || !eventId || !participantId) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments.' });
+    }
+
+    const { error } = await supabase
+      .from('participants')
+      .delete()
+      .eq('id', participantId)
+      .eq('event_id', eventId);
+
+    if (error) throw error;
+    return res.json({ success: true, message: 'Participant deleted.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/events/:eventId/participants/bulk-delete
+ * Bulk delete participants from a special event
+ */
+router.post('/events/:eventId/participants/bulk-delete', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const participantIds = req.body.participantIds || [];
+
+    if (!supabase || !eventId || !Array.isArray(participantIds) || participantIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Invalid arguments.' });
+    }
+
+    const { error } = await supabase
+      .from('participants')
+      .delete()
+      .in('id', participantIds)
+      .eq('event_id', eventId);
+
+    if (error) throw error;
+    return res.json({ success: true, message: 'Participants deleted.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/ps/allocations/:eventId
  * Get allocated credentials for a special event
  */

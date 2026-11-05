@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 export const participantService = {
-  // Fetch participants for an event directly from Supabase
+  // Fetch participants for an event directly from Supabase with backend fallback for special events
   async getParticipants(eventId) {
     if (supabase) {
       const { data, error } = await supabase
@@ -17,12 +17,12 @@ export const participantService = {
       }
     }
 
-    // Fallback: Query backend API for Special Events (bypasses RLS)
+    // Fallback: Query backend API for Special Events (bypasses RLS for granted normal users)
     try {
       const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants`);
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.participants) && json.participants.length > 0) {
+        if (json.success && Array.isArray(json.participants)) {
           return json.participants;
         }
       }
@@ -31,35 +31,58 @@ export const participantService = {
     return [];
   },
 
-  // Add single participant directly to Supabase
+  // Add single participant directly to Supabase with backend fallback for special events
   async addParticipant(eventId, { name, external_identifier = '', metadata = {} }) {
-    if (!supabase) throw new Error('Supabase is not configured');
+    const cleanName = (name || '').trim();
+    if (!cleanName) throw new Error('Participant name cannot be empty');
 
     const newRecord = {
       event_id: eventId,
-      name: name.trim(),
+      name: cleanName,
       external_identifier: (external_identifier || '').trim(),
       metadata: metadata || {}
     };
 
-    const { data, error } = await supabase
-      .from('participants')
-      .insert([newRecord])
-      .select()
-      .single();
+    // 1. Try Supabase
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('participants')
+        .insert([newRecord])
+        .select()
+        .single();
 
-    if (error) {
-      console.error('Error adding participant to Supabase:', error);
-      throw error;
+      if (!error && data) {
+        return data;
+      }
     }
 
-    return data;
+    // 2. Fallback: Backend API (bypasses RLS for granted special event users)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.participant) {
+          return json.participant;
+        }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        if (errJson.message) throw new Error(errJson.message);
+      }
+    } catch (apiErr) {
+      if (apiErr.message && !apiErr.message.includes('fetch')) {
+        throw apiErr;
+      }
+    }
+
+    throw new Error('Could not add participant. Please try again.');
   },
 
-  // Bulk add participants directly to Supabase
+  // Bulk add participants directly to Supabase with backend fallback for special events
   async bulkAddParticipants(eventId, items) {
-    if (!supabase) throw new Error('Supabase is not configured');
-
     const formatted = items.map(item => ({
       event_id: eventId,
       name: (item.name || '').trim(),
@@ -69,71 +92,119 @@ export const participantService = {
 
     if (formatted.length === 0) return [];
 
-    const { data, error } = await supabase
-      .from('participants')
-      .insert(formatted)
-      .select();
+    // 1. Try Supabase
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('participants')
+        .insert(formatted)
+        .select();
 
-    if (error) {
-      console.error('Error bulk adding participants to Supabase:', error);
-      throw error;
+      if (!error && Array.isArray(data) && data.length > 0) {
+        return data;
+      }
     }
 
-    return data;
+    // 2. Fallback: Backend API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants/bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: formatted })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.participants)) {
+          return json.participants;
+        }
+      }
+    } catch (_) {}
+
+    return [];
   },
 
-  // Update participant
+  // Update participant with backend fallback
   async updateParticipant(eventId, participantId, updates) {
-    if (!supabase) throw new Error('Supabase is not configured');
+    // 1. Try Supabase
+    if (supabase) {
+      const { data, error } = await supabase
+        .from('participants')
+        .update(updates)
+        .eq('id', participantId)
+        .eq('event_id', eventId)
+        .select()
+        .single();
 
-    const { data, error } = await supabase
-      .from('participants')
-      .update(updates)
-      .eq('id', participantId)
-      .eq('event_id', eventId)
-      .select()
-      .single();
-
-    if (error) {
-      console.error('Error updating participant in Supabase:', error);
-      throw error;
+      if (!error && data) {
+        return data;
+      }
     }
 
-    return data;
+    // 2. Fallback: Backend API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants/${participantId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.participant) {
+          return json.participant;
+        }
+      }
+    } catch (_) {}
+
+    return null;
   },
 
-  // Delete participant
+  // Delete participant with backend fallback
   async deleteParticipant(eventId, participantId) {
-    if (!supabase) return;
+    // 1. Try Supabase
+    if (supabase) {
+      const { error } = await supabase
+        .from('participants')
+        .delete()
+        .eq('id', participantId)
+        .eq('event_id', eventId);
 
-    const { error } = await supabase
-      .from('participants')
-      .delete()
-      .eq('id', participantId)
-      .eq('event_id', eventId);
-
-    if (error) {
-      console.error('Error deleting participant from Supabase:', error);
-      throw error;
+      if (!error) return true;
     }
+
+    // 2. Fallback: Backend API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants/${participantId}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) return true;
+    } catch (_) {}
 
     return true;
   },
 
-  // Bulk delete
+  // Bulk delete with backend fallback
   async bulkDelete(eventId, participantIds) {
-    if (!supabase || participantIds.length === 0) return;
+    if (!participantIds || participantIds.length === 0) return true;
 
-    const { error } = await supabase
-      .from('participants')
-      .delete()
-      .in('id', participantIds)
-      .eq('event_id', eventId);
+    // 1. Try Supabase
+    if (supabase) {
+      const { error } = await supabase
+        .from('participants')
+        .delete()
+        .in('id', participantIds)
+        .eq('event_id', eventId);
 
-    if (error) {
-      console.error('Error bulk deleting participants from Supabase:', error);
-      throw error;
+      if (!error) return true;
     }
+
+    // 2. Fallback: Backend API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${eventId}/participants/bulk-delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ participantIds })
+      });
+      if (res.ok) return true;
+    } catch (_) {}
 
     return true;
   }
