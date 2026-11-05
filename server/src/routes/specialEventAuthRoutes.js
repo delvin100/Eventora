@@ -85,7 +85,7 @@ router.post('/login', async (req, res, next) => {
       user: {
         id: matched.id,
         username: matched.username,
-        access_level: matched.access_level || 'Operator',
+        access_level: matched.access_level || 'Evaluator',
         created_at: matched.created_at,
         event_id: event.id,
         event_name: event.name
@@ -547,7 +547,12 @@ router.post('/reset-event', async (req, res, next) => {
 
     if (supabase && eventId) {
       await supabase.from('participants').delete().eq('event_id', eventId);
-      await supabase.from('results').delete().eq('event_id', eventId);
+      // Delete all results EXCEPT special_event_user_access (preserve Authorized Users added by admin!)
+      await supabase
+        .from('results')
+        .delete()
+        .eq('event_id', eventId)
+        .neq('operation_type', 'special_event_user_access');
     }
 
     activeLiveState.status = 'waiting';
@@ -1206,7 +1211,7 @@ router.get('/allocations/:eventId', async (req, res, next) => {
 router.post('/allocations/:eventId', async (req, res, next) => {
   try {
     const { eventId } = req.params;
-    const { username, password, accessLevel = 'Operator' } = req.body;
+    const { username, password, accessLevel = 'Evaluator' } = req.body;
 
     if (!supabase || !eventId) {
       return res.status(400).json({ success: false, message: 'Invalid arguments' });

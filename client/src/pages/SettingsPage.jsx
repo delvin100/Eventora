@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
 import {
-  Sun,
-  Moon,
-  Volume2,
-  Sparkles,
   User,
   Shield,
   LogOut,
@@ -21,14 +16,8 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 
 export default function SettingsPage() {
   const { user, profile, signOut } = useAuth();
-  const { theme, toggleTheme } = useTheme();
 
   const isAdmin = user?.email === 'admin@gmail.com' || profile?.role === 'admin' || user?.user_metadata?.role === 'admin';
-
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [celebrationEnabled, setCelebrationEnabled] = useState(true);
-  const [spinDuration, setSpinDuration] = useState(5);
-  const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Special Event Reset states
   const [specialEvents, setSpecialEvents] = useState([]);
@@ -51,13 +40,14 @@ export default function SettingsPage() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Load all special events for dropdown (defaults to empty: 'Select Special Event')
+  // Load special events:
+  // Admin sees all special events; authorized normal users see only special events they have access to
   const loadSpecialEvents = async () => {
     try {
       setLoadingEvents(true);
-      const list = await specialEventService.getSpecialEvents();
+      const list = await specialEventService.getSpecialEvents(user);
       setSpecialEvents(list || []);
-      // Do not auto-select an event by default
+      // Keep previous selection if still valid, otherwise reset
       setSelectedEventId(prev => (prev && list.some(e => e.id === prev)) ? prev : '');
     } catch (err) {
       console.error('Failed to load special events:', err);
@@ -67,16 +57,10 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    if (isAdmin) {
+    if (user) {
       loadSpecialEvents();
     }
-  }, [user?.id, isAdmin]);
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 2500);
-  };
+  }, [user?.id, user?.email, isAdmin]);
 
   const handleExecuteReset = async () => {
     if (!selectedEventId) return;
@@ -86,7 +70,7 @@ export default function SettingsPage() {
       await specialEventService.resetSpecialEventData(selectedEventId);
 
       const targetEv = specialEvents.find(e => e.id === selectedEventId);
-      setResetSuccessMsg(`Special event "${targetEv?.name || 'Selected event'}" data has been completely removed from the database!`);
+      setResetSuccessMsg(`Special event "${targetEv?.name || 'Selected event'}" data has been completely reset. Authorized users have been preserved.`);
       setSelectedEventId('');
       setIsResetConfirmOpen(false);
 
@@ -109,16 +93,9 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Settings</h1>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Manage your profile, theme, and draw animation defaults.
+          Manage your account profile and special event operations.
         </p>
       </div>
-
-      {savedSuccess && (
-        <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
-          <Check className="w-4 h-4" />
-          <span>Preferences saved successfully!</span>
-        </div>
-      )}
 
       {/* Profile Card */}
       <div className="p-6 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm space-y-4">
@@ -154,80 +131,8 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Appearance & Sound */}
-      <div className="p-6 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm space-y-4">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#635BFF]" />
-          <span>Wheel & Appearance Preferences</span>
-        </h2>
-
-        <div className="space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
-            <div>
-              <p className="text-xs font-semibold text-gray-900 dark:text-white">Interface Theme</p>
-              <p className="text-[11px] text-gray-400">Switch between light and dark visual styles</p>
-            </div>
-            <button
-              onClick={toggleTheme}
-              className="px-3.5 py-1.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-xs font-semibold flex items-center gap-2 cursor-pointer"
-            >
-              {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-              <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-            </button>
-          </div>
-
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
-            <div>
-              <p className="text-xs font-semibold text-gray-900 dark:text-white">Audible Tick Sound</p>
-              <p className="text-[11px] text-gray-400">Play wheel ticking sound during spin rotations</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={soundEnabled}
-              onChange={(e) => setSoundEnabled(e.target.checked)}
-              className="w-4 h-4 text-[#635BFF] rounded cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
-            <div>
-              <p className="text-xs font-semibold text-gray-900 dark:text-white">Confetti Celebrations</p>
-              <p className="text-[11px] text-gray-400">Show particle confetti when a winner is announced</p>
-            </div>
-            <input
-              type="checkbox"
-              checked={celebrationEnabled}
-              onChange={(e) => setCelebrationEnabled(e.target.checked)}
-              className="w-4 h-4 text-[#635BFF] rounded cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-gray-900 dark:text-white">Default Spin Duration</p>
-              <p className="text-[11px] text-gray-400">Standard spin time in seconds ({spinDuration}s)</p>
-            </div>
-            <input
-              type="range"
-              min="3"
-              max="10"
-              value={spinDuration}
-              onChange={(e) => setSpinDuration(Number(e.target.value))}
-              className="w-28 cursor-pointer accent-[#635BFF]"
-            />
-          </div>
-        </div>
-
-        <button
-          onClick={handleSave}
-          className="mt-2 px-5 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-sm cursor-pointer"
-        >
-          Save Preferences
-        </button>
-      </div>
-
-      {/* Special Event Data Reset (Admin Account Only) */}
-      {isAdmin && (
+      {/* Special Event Data Reset (Available for Admin and Authorized Access Users) */}
+      {(isAdmin || specialEvents.length > 0) && (
         <div className="p-6 rounded-2xl bg-white dark:bg-[#161925] border border-red-200/80 dark:border-red-900/40 shadow-sm space-y-5 animate-in fade-in duration-200">
           <div>
             <h2 className="text-sm font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
@@ -235,7 +140,7 @@ export default function SettingsPage() {
               <span>Reset Special Event</span>
             </h2>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Select a special event to purge its participants, evaluator scores, access accounts, and wheel draw records from the database.
+              Select a special event to purge its participants, evaluator scores, and wheel draw records from the database. Authorized users will be kept intact.
             </p>
           </div>
 
@@ -291,7 +196,7 @@ export default function SettingsPage() {
 
               {/* Stylish Dropdown Menu */}
               {isDropdownOpen && specialEvents.length > 0 && (
-                <div className="absolute z-20 left-0 right-0 mt-2 p-1.5 rounded-2xl bg-white dark:bg-[#161824] border border-gray-200 dark:border-gray-800 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute z-20 left-0 right-0 mt-2 p-1.5 rounded-2xl bg-white dark:bg-[#161824] border border-gray-200 dark:border-gray-800 shadow-2xl space-y-1 animate-in fade-in zoom-in-95 duration-150 max-h-60 overflow-y-auto">
                   {specialEvents.map((ev) => {
                     const isSelected = ev.id === selectedEventId;
                     return (
@@ -325,7 +230,7 @@ export default function SettingsPage() {
           {currentSelectedEvent && (
             <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-gray-100 dark:border-gray-800/80 animate-in fade-in slide-in-from-top-1 duration-150">
               <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed max-w-md">
-                Resetting will permanently delete all participants, evaluator logins, round tasks, scores, and wheel draw records for <span className="font-semibold text-gray-800 dark:text-gray-200">{currentSelectedEvent.name}</span> from the database.
+                Resetting will permanently delete all participants, round tasks, scores, and wheel draw records for <span className="font-semibold text-gray-800 dark:text-gray-200">{currentSelectedEvent.name}</span> from the database. Authorized users will not be deleted.
               </p>
 
               <button
@@ -360,7 +265,7 @@ export default function SettingsPage() {
       <ConfirmDialog
         isOpen={isResetConfirmOpen}
         title={`Reset "${currentSelectedEvent?.name}" Data?`}
-        message={`Are you sure you want to permanently delete all registered participants, evaluator credentials, configured tasks, evaluator scores, and wheel draw records for "${currentSelectedEvent?.name}"? This action cannot be undone.`}
+        message={`Are you sure you want to permanently delete all registered participants, configured tasks, evaluator scores, and wheel draw records for "${currentSelectedEvent?.name}"? Authorized users will be kept intact. This action cannot be undone.`}
         confirmText="Yes, Permanently Delete & Reset"
         cancelText="Cancel"
         isDanger={true}

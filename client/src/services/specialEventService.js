@@ -190,7 +190,7 @@ export const specialEventService = {
   },
 
   // Add an allocated username and password for a special event
-  async addAllocatedUser(eventId, { username, password, accessLevel = 'Operator' }) {
+  async addAllocatedUser(eventId, { username, password, accessLevel = 'Evaluator' }) {
     const cleanUsername = username.trim();
     if (!cleanUsername) throw new Error('Username cannot be empty');
     if (!password || password.length < 4) throw new Error('Password must be at least 4 characters');
@@ -464,45 +464,61 @@ export const specialEventService = {
     }
   },
 
-  // Completely reset a special event (deletes participants and all results)
+  // Completely reset a special event (deletes participants, evaluations, and results - preserves Authorized Users)
   async resetSpecialEventData(eventId) {
-    if (!supabase || !eventId) throw new Error('Supabase client or eventId missing');
+    if (!eventId) throw new Error('eventId missing');
 
-    // 1. Delete all participants
-    const { error: partErr } = await supabase
-      .from('participants')
-      .delete()
-      .eq('event_id', eventId);
-    if (partErr) throw partErr;
+    let backendSuccess = false;
 
-    // 2. Delete all results (evaluator allocations, settings, scores, live state, wheel draw history)
-    const { error: resErr } = await supabase
-      .from('results')
-      .delete()
-      .eq('event_id', eventId);
-    if (resErr) throw resErr;
-
-    // 3. Notify backend API to clear in-memory live state
+    // 1. Notify backend API to purge participants, evaluations & reset in-memory live state
+    // Backend uses service role key so this works for both admin and authorized users, preserving 'special_event_user_access'
     try {
-      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
-      await fetch(`${API_BASE_URL}/ps/reset-event`, {
+      const res = await fetch(`${API_BASE_URL}/ps/reset-event`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ eventId })
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        backendSuccess = true;
+      }
     } catch (_) {}
 
-    // 4. Clean localStorage caches
+    // 2. Direct Supabase operation as fallback / double safety
+    if (supabase) {
+      try {
+        // Delete all participants
+        await supabase
+          .from('participants')
+          .delete()
+          .eq('event_id', eventId);
+
+        // Delete all results EXCEPT special_event_user_access
+        // (Authorized Users added by admin are preserved and never removed on reset)
+        await supabase
+          .from('results')
+          .delete()
+          .eq('event_id', eventId)
+          .neq('operation_type', 'special_event_user_access');
+      } catch (sbErr) {
+        if (!backendSuccess) {
+          console.error('Supabase reset error:', sbErr);
+          throw sbErr;
+        }
+      }
+    }
+
+    // 3. Clean localStorage caches (preserve access token and general auth)
     try {
       const keysToRemove = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
-        if (key && (
+        if (key && !key.includes('user_access') && (
           key.includes(eventId) ||
-          key.startsWith('ps_') ||
+          key.startsWith('ps_live_state') ||
           key.includes('eventora_round') ||
           key.includes('eventora_removed') ||
-          key.includes('eventora_current_winner')
+          key.includes('eventora_current_winner') ||
+          key.includes('eventora_event_ended')
         )) {
           keysToRemove.push(key);
         }

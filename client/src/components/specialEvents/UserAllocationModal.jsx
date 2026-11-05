@@ -31,7 +31,7 @@ export default function UserAllocationModal({ isOpen, onClose, event, onAllocati
   // Form state
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [accessLevel, setAccessLevel] = useState('Operator');
+  const [accessLevel, setAccessLevel] = useState('Evaluator');
   const [showPassword, setShowPassword] = useState(false);
   const [formLoading, setFormLoading] = useState(false);
   const [formError, setFormError] = useState('');
@@ -251,27 +251,26 @@ export default function UserAllocationModal({ isOpen, onClose, event, onAllocati
                 </div>
               </div>
 
-              {/* Access Level Selector */}
+              {/* Access Level Selector - Fixed to Evaluator as requested */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
                   Access Level / Role
                 </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {ACCESS_LEVELS.map(lvl => (
-                    <button
-                      key={lvl.id}
-                      type="button"
-                      onClick={() => setAccessLevel(lvl.id)}
-                      className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                        accessLevel === lvl.id
-                          ? 'border-violet-500 bg-violet-50/80 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 font-semibold'
-                          : 'border-gray-200 dark:border-gray-700/80 bg-white dark:bg-[#181B26] text-gray-700 dark:text-gray-300 hover:border-gray-300'
-                      }`}
-                    >
-                      <p className="text-xs">{lvl.label}</p>
-                      <p className="text-[10px] text-gray-400 font-normal mt-0.5 line-clamp-1">{lvl.desc}</p>
-                    </button>
-                  ))}
+                <div className="max-w-xs">
+                  <div className="p-3 rounded-xl border border-violet-500/80 bg-violet-50/80 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 flex items-center justify-between shadow-xs select-none">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-violet-500/20 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-xs">
+                        <Check className="w-4 h-4 text-violet-600 dark:text-violet-300" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-bold text-violet-900 dark:text-violet-200">Evaluator</p>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 font-normal">Can evaluate participants</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-200/80 dark:bg-violet-900/60 text-violet-800 dark:text-violet-200">
+                      Default
+                    </span>
+                  </div>
                 </div>
               </div>
 
@@ -330,7 +329,7 @@ export default function UserAllocationModal({ isOpen, onClose, event, onAllocati
                               {u.username}
                             </span>
                             <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-50 dark:bg-violet-950/80 text-violet-700 dark:text-violet-300 border border-violet-200/50 dark:border-violet-800/50">
-                              {u.access_level === 'Judge' ? 'Evaluator' : (u.access_level || 'Operator')}
+                              {u.access_level === 'Judge' || !u.access_level ? 'Evaluator' : u.access_level}
                             </span>
                           </div>
                           <span className="text-[11px] text-gray-400">

@@ -141,7 +141,7 @@ export default function SpecialEventSettingsPage() {
       setResetting(true);
       setResetSuccessMsg(null);
       await specialEventService.resetSpecialEventData(eventId);
-      setResetSuccessMsg(`Special event "${event?.name || 'This event'}" has been successfully reset! All participants, scores, evaluator accounts, and draw records have been purged.`);
+      setResetSuccessMsg(`Special event "${event?.name || 'This event'}" has been successfully reset. All operational data has been purged, and authorized users are preserved.`);
       setIsResetConfirmOpen(false);
       setRoundsCount(1);
       setRounds([{ roundNumber: 1, task: '' }]);
@@ -376,44 +376,42 @@ export default function SpecialEventSettingsPage() {
 
       </form>
 
-      {/* Reset Special Event Data (Admin Account Only) */}
-      {isAdmin && (
-        <div className="p-6 rounded-3xl bg-white dark:bg-[#161925] border border-red-200/80 dark:border-red-900/40 shadow-sm space-y-4">
-          <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
-              <span>Reset Special Event Data</span>
-            </h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed max-w-xl">
-              Permanently wipe all registered participants, evaluator login credentials, configured round tasks, evaluator scores, and historical wheel draws for this event from the database.
-            </p>
-          </div>
-
-          {resetSuccessMsg && (
-            <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-              <span>{resetSuccessMsg}</span>
-            </div>
-          )}
-
-          <div className="pt-2 flex items-center justify-end">
-            <button
-              type="button"
-              onClick={() => setIsResetConfirmOpen(true)}
-              disabled={resetting}
-              className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md shadow-red-600/25 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Reset {event?.name || 'Special Event'} Data</span>
-            </button>
-          </div>
+      {/* Reset Special Event Data (Admin & Authorized Access Users) */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-[#161925] border border-red-200/80 dark:border-red-900/40 shadow-sm space-y-4">
+        <div>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-500" />
+            <span>Reset Special Event Data</span>
+          </h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed max-w-xl">
+            Permanently wipe all registered participants, evaluator login credentials, configured round tasks, evaluator scores, and historical wheel draws for this event from the database. Authorized users will be kept intact.
+          </p>
         </div>
-      )}
+
+        {resetSuccessMsg && (
+          <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+            <span>{resetSuccessMsg}</span>
+          </div>
+        )}
+
+        <div className="pt-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setIsResetConfirmOpen(true)}
+            disabled={resetting}
+            className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md shadow-red-600/25 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Reset {event?.name || 'Special Event'} Data</span>
+          </button>
+        </div>
+      </div>
 
       <ConfirmDialog
         isOpen={isResetConfirmOpen}
         title={`Reset "${event?.name || 'Special Event'}" Data?`}
-        message={`Are you sure you want to permanently delete all registered participants, evaluator credentials, round tasks, evaluator scores, and wheel draw records for "${event?.name || 'this event'}"? This action cannot be undone.`}
+        message={`Are you sure you want to permanently delete all registered participants, evaluator credentials, round tasks, evaluator scores, and wheel draw records for "${event?.name || 'this event'}"? Authorized users will be kept intact. This action cannot be undone.`}
         confirmText="Yes, Permanently Delete & Reset"
         cancelText="Cancel"
         isDanger={true}

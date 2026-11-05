@@ -40,7 +40,7 @@ export const prathibhaSangamamAuthService = {
             const sessionUser = {
               id: matched.id,
               username: matched.username,
-              access_level: matched.access_level || 'Operator',
+              access_level: matched.access_level || 'Evaluator',
               created_at: matched.created_at,
               event_name: 'Prathibha Sangamam'
             };
@@ -79,7 +79,7 @@ export const prathibhaSangamamAuthService = {
               const sessionUser = {
                 id: matched.id,
                 username: matched.username,
-                access_level: matched.access_level || 'Operator',
+                access_level: matched.access_level || 'Evaluator',
                 created_at: matched.created_at,
                 event_id: event.id,
                 event_name: event.name
