@@ -14,17 +14,22 @@ import {
   Layers,
   CheckCircle2,
   AlertCircle,
-  X
+  X,
+  Settings,
+  Users
 } from 'lucide-react';
 import { specialEventService } from '../services/specialEventService';
 import { useAuth } from '../context/AuthContext';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import UserAllocationModal from '../components/specialEvents/UserAllocationModal';
+import SpecialEventUserAccessModal from '../components/specialEvents/SpecialEventUserAccessModal';
 import { formatDate } from '../utils/dateUtils';
 import { slugify } from '../utils/slugUtils';
 
 export default function SpecialEventsPage() {
   const { user } = useAuth();
+  const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -43,11 +48,14 @@ export default function SpecialEventsPage() {
   // User Allocation Modal State
   const [allocationEvent, setAllocationEvent] = useState(null);
 
+  // User Access Settings Modal State (Admin only)
+  const [userAccessEvent, setUserAccessEvent] = useState(null);
+
   const loadSpecialEvents = async () => {
     try {
       setLoading(true);
-      const data = await specialEventService.getSpecialEvents();
-      setEvents(data);
+      const data = await specialEventService.getSpecialEvents(user);
+      setEvents(data || []);
     } catch (err) {
       console.error('Failed to load special events:', err);
     } finally {
@@ -57,7 +65,7 @@ export default function SpecialEventsPage() {
 
   useEffect(() => {
     loadSpecialEvents();
-  }, []);
+  }, [user?.id, user?.email]);
 
   const handleCreateEvent = async (e) => {
     e.preventDefault();
@@ -120,13 +128,15 @@ export default function SpecialEventsPage() {
             </p>
           </div>
 
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] shrink-0 cursor-pointer"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Add Special Event</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] shrink-0 cursor-pointer"
+            >
+              <Plus className="w-5 h-5" />
+              <span>Add Special Event</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -164,15 +174,19 @@ export default function SpecialEventsPage() {
             No Special Events Yet
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-            Special events are customized events created only by admins. Once created, you can allocate users with specific access rights.
+            {isAdmin
+              ? 'Special events are customized events created only by admins. Once created, you can allocate users with specific access rights.'
+              : 'You do not have access to any special events yet. Contact the administrator to grant you access.'}
           </p>
-          <button
-            onClick={() => setIsModalOpen(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-md shadow-violet-600/25 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create First Special Event</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-md shadow-violet-600/25 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create First Special Event</span>
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -184,24 +198,39 @@ export default function SpecialEventsPage() {
               className="group relative flex flex-col justify-between bg-white dark:bg-[#151823] rounded-2xl border border-gray-200/90 dark:border-gray-800/90 p-5 hover:border-violet-500/60 dark:hover:border-violet-500/60 shadow-sm hover:shadow-xl hover:shadow-violet-500/5 transition-all duration-200"
             >
               <div>
-                {/* Card Top: Crown Tag + Delete */}
+                {/* Card Top: Crown Tag + Admin Settings & Delete */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-950/50 border border-violet-200/60 dark:border-violet-800/60 text-violet-700 dark:text-violet-300 text-[11px] font-bold uppercase tracking-wider">
                     <Crown className="w-3.5 h-3.5 text-amber-500" />
                     <span>Special Event</span>
                   </div>
 
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setEventToDelete(event);
-                    }}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                    title="Delete Special Event"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  {isAdmin && (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setUserAccessEvent(event);
+                        }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-colors"
+                        title="User Access Settings (Grant access to other users)"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setEventToDelete(event);
+                        }}
+                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                        title="Delete Special Event"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Event Name */}
@@ -214,24 +243,26 @@ export default function SpecialEventsPage() {
                   {event.description || 'Special event with allocated access.'}
                 </p>
 
-                {/* User Allocation Action Pill */}
-                <div
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setAllocationEvent(event);
-                  }}
-                  className="mt-4 p-2.5 rounded-xl bg-gray-50 dark:bg-[#11131C] border border-gray-100 dark:border-gray-800 hover:border-violet-500/60 dark:hover:border-violet-500/60 hover:bg-violet-50/40 dark:hover:bg-violet-950/20 flex items-center justify-between text-xs cursor-pointer transition-all group/alloc"
-                  title="Click to allocate usernames & passwords for this event"
-                >
-                  <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span className="font-semibold">User Allocation</span>
+                {/* User Allocation Action Pill (Admin only) */}
+                {isAdmin && (
+                  <div
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setAllocationEvent(event);
+                    }}
+                    className="mt-4 p-2.5 rounded-xl bg-gray-50 dark:bg-[#11131C] border border-gray-100 dark:border-gray-800 hover:border-violet-500/60 dark:hover:border-violet-500/60 hover:bg-violet-50/40 dark:hover:bg-violet-950/20 flex items-center justify-between text-xs cursor-pointer transition-all group/alloc"
+                    title="Click to allocate usernames & passwords for this event"
+                  >
+                    <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+                      <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <span className="font-semibold">User Allocation</span>
+                    </div>
+                    <span className="text-[11px] font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/80 px-2.5 py-1 rounded-lg border border-violet-200/50 dark:border-violet-800/50 group-hover/alloc:bg-violet-600 group-hover/alloc:text-white transition-all flex items-center gap-1">
+                      <span>{event.allocatedUserCount > 0 ? `${event.allocatedUserCount} User${event.allocatedUserCount === 1 ? '' : 's'}` : 'Allocate Users +'}</span>
+                    </span>
                   </div>
-                  <span className="text-[11px] font-bold text-violet-700 dark:text-violet-300 bg-violet-100 dark:bg-violet-950/80 px-2.5 py-1 rounded-lg border border-violet-200/50 dark:border-violet-800/50 group-hover/alloc:bg-violet-600 group-hover/alloc:text-white transition-all flex items-center gap-1">
-                    <span>{event.allocatedUserCount > 0 ? `${event.allocatedUserCount} User${event.allocatedUserCount === 1 ? '' : 's'}` : 'Allocate Users +'}</span>
-                  </span>
-                </div>
+                )}
               </div>
 
               {/* Card Footer */}
@@ -364,6 +395,14 @@ export default function SpecialEventsPage() {
         onAllocationsUpdated={(eventId, count) => {
           setEvents(prev => prev.map(ev => ev.id === eventId ? { ...ev, allocatedUserCount: count } : ev));
         }}
+      />
+
+      {/* User Access Settings Modal (Admin) */}
+      <SpecialEventUserAccessModal
+        isOpen={Boolean(userAccessEvent)}
+        onClose={() => setUserAccessEvent(null)}
+        event={userAccessEvent}
+        onUpdated={loadSpecialEvents}
       />
     </div>
   );

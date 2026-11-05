@@ -1,41 +1,97 @@
 import { supabase } from '../lib/supabase';
 
 export const specialEventService = {
-  // Fetch all special events (category: 'Special Event') with participant and allocation counts
-  async getSpecialEvents() {
+  // Fetch all special events (category: 'Special Event') with participant, allocation, and user access counts
+  // Admins see all special events. Normal users ONLY see special events they have been granted access to.
+  async getSpecialEvents(currentUser) {
     if (!supabase) return [];
-    const { data: { user } } = await supabase.auth.getUser();
+    let user = currentUser;
+    if (!user) {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      user = authUser;
+    }
     if (!user) return [];
 
-    const [{ data: eventsData, error: evErr }, { data: allocData }] = await Promise.all([
-      supabase
-        .from('events')
-        .select('*, participants(id)')
-        .eq('owner_id', user.id)
-        .eq('category', 'Special Event')
-        .order('created_at', { ascending: false }),
-      supabase
+    const isAdmin = user.email === 'admin@gmail.com' || user.user_metadata?.role === 'admin';
+
+    if (isAdmin) {
+      const [{ data: eventsData, error: evErr }, { data: allocData }, { data: accessData }] = await Promise.all([
+        supabase
+          .from('events')
+          .select('*, participants(id)')
+          .eq('category', 'Special Event')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('results')
+          .select('event_id, result_snapshot')
+          .eq('operation_type', 'special_event_allocations'),
+        supabase
+          .from('results')
+          .select('event_id, result_snapshot')
+          .eq('operation_type', 'special_event_user_access')
+      ]);
+
+      if (evErr) {
+        console.error('Error fetching special events from Supabase:', evErr);
+        return [];
+      }
+
+      const allocCountMap = {};
+      (allocData || []).forEach(r => {
+        allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
+      });
+
+      const accessCountMap = {};
+      (accessData || []).forEach(r => {
+        accessCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
+      });
+
+      return (eventsData || []).map(ev => ({
+        ...ev,
+        participantCount: ev.participants ? ev.participants.length : 0,
+        allocatedUserCount: allocCountMap[ev.id] || 0,
+        grantedUserCount: accessCountMap[ev.id] || 0
+      }));
+    } else {
+      // Normal user: ONLY return special events where this user has been granted access
+      const { data: accessRecords } = await supabase
         .from('results')
         .select('event_id, result_snapshot')
-        .eq('owner_id', user.id)
-        .eq('operation_type', 'special_event_allocations')
-    ]);
+        .eq('operation_type', 'special_event_user_access');
 
-    if (evErr) {
-      console.error('Error fetching special events from Supabase:', evErr);
-      return [];
+      const allowedEventIds = [];
+      (accessRecords || []).forEach(rec => {
+        const list = Array.isArray(rec.result_snapshot) ? rec.result_snapshot : [];
+        const isGranted = list.some(u =>
+          (u.id && u.id === user.id) ||
+          (u.userId && u.userId === user.id) ||
+          (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase())
+        );
+        if (isGranted) {
+          allowedEventIds.push(rec.event_id);
+        }
+      });
+
+      if (allowedEventIds.length === 0) {
+        return [];
+      }
+
+      const { data: eventsData, error: evErr } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .in('id', allowedEventIds)
+        .eq('category', 'Special Event')
+        .order('created_at', { ascending: false });
+
+      if (evErr) return [];
+
+      return (eventsData || []).map(ev => ({
+        ...ev,
+        participantCount: ev.participants ? ev.participants.length : 0,
+        allocatedUserCount: 0,
+        grantedUserCount: 0
+      }));
     }
-
-    const allocCountMap = {};
-    (allocData || []).forEach(r => {
-      allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
-    });
-
-    return (eventsData || []).map(ev => ({
-      ...ev,
-      participantCount: ev.participants ? ev.participants.length : 0,
-      allocatedUserCount: allocCountMap[ev.id] || 0
-    }));
   },
 
   // Create a new special event with name and optional description / accent
@@ -351,5 +407,143 @@ export const specialEventService = {
     } catch (_) {}
 
     return true;
+  },
+
+  // Fetch all registered users in the platform except admin
+  async getRegisteredUsers() {
+    const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/registered-users`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.users) && data.users.length > 0) {
+          return data.users;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: Query profiles table from Supabase
+    if (supabase) {
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('*');
+
+        return (profiles || [])
+          .filter(p => p.id !== 'f92acb4e-09b2-4f1c-ae6f-fc4d6e7601e1' && !p.display_name?.toLowerCase().includes('admin'))
+          .map(p => ({
+            id: p.id,
+            email: p.display_name?.includes('@') ? p.display_name : `${p.display_name?.toLowerCase().replace(/\s+/g, '')}@eventora.app`,
+            displayName: p.display_name || 'User',
+            usageType: p.usage_type || 'personal'
+          }));
+      } catch (err) {
+        console.error('Error fetching registered profiles fallback:', err);
+      }
+    }
+
+    return [];
+  },
+
+  // Get users granted access to a special event
+  async getSpecialEventUserAccess(eventId) {
+    if (!supabase || !eventId) return [];
+    try {
+      const { data } = await supabase
+        .from('results')
+        .select('id, result_snapshot')
+        .eq('event_id', eventId)
+        .eq('operation_type', 'special_event_user_access')
+        .maybeSingle();
+
+      return Array.isArray(data?.result_snapshot) ? data.result_snapshot : [];
+    } catch (err) {
+      console.error('Error fetching special event user access:', err);
+      return [];
+    }
+  },
+
+  // Grant special event access to a registered user
+  async grantSpecialEventUserAccess(eventId, targetUser) {
+    if (!supabase || !eventId || !targetUser) return [];
+    try {
+      const { data: event } = await supabase
+        .from('events')
+        .select('id, owner_id')
+        .eq('id', eventId)
+        .single();
+
+      const { data: existing } = await supabase
+        .from('results')
+        .select('id, result_snapshot')
+        .eq('event_id', eventId)
+        .eq('operation_type', 'special_event_user_access')
+        .maybeSingle();
+
+      const current = Array.isArray(existing?.result_snapshot) ? existing.result_snapshot : [];
+      if (current.some(u => u.id === targetUser.id || (u.email && targetUser.email && u.email.toLowerCase() === targetUser.email.toLowerCase()))) {
+        return current;
+      }
+
+      const updated = [
+        ...current,
+        {
+          id: targetUser.id,
+          userId: targetUser.id,
+          email: targetUser.email || '',
+          displayName: targetUser.displayName || targetUser.display_name || targetUser.name || 'User',
+          grantedAt: new Date().toISOString()
+        }
+      ];
+
+      if (existing?.id) {
+        await supabase
+          .from('results')
+          .update({ result_snapshot: updated })
+          .eq('id', existing.id);
+      } else {
+        await supabase
+          .from('results')
+          .insert([{
+            event_id: eventId,
+            owner_id: event.owner_id,
+            operation_type: 'special_event_user_access',
+            result_name: 'Special Event Authorized Users',
+            result_snapshot: updated
+          }]);
+      }
+
+      return updated;
+    } catch (err) {
+      console.error('Error granting user access:', err);
+      throw err;
+    }
+  },
+
+  // Revoke user access from a special event
+  async revokeSpecialEventUserAccess(eventId, targetUserId) {
+    if (!supabase || !eventId || !targetUserId) return [];
+    try {
+      const { data: existing } = await supabase
+        .from('results')
+        .select('id, result_snapshot')
+        .eq('event_id', eventId)
+        .eq('operation_type', 'special_event_user_access')
+        .maybeSingle();
+
+      if (!existing?.id) return [];
+      const current = Array.isArray(existing.result_snapshot) ? existing.result_snapshot : [];
+      const updated = current.filter(u => u.id !== targetUserId && u.userId !== targetUserId);
+
+      await supabase
+        .from('results')
+        .update({ result_snapshot: updated })
+        .eq('id', existing.id);
+
+      return updated;
+    } catch (err) {
+      console.error('Error revoking user access:', err);
+      throw err;
+    }
   }
 };

@@ -16,14 +16,17 @@ import { eventService } from '../services/eventService';
 import { specialEventService } from '../services/specialEventService';
 import { specialEventLiveService } from '../services/specialEventLiveService';
 import SpecialEventDetailedReportModal from '../components/specialEvents/SpecialEventDetailedReportModal';
+import { useAuth } from '../context/AuthContext';
 import { slugify } from '../utils/slugUtils';
 
 export default function EventWorkspace() {
+  const { user } = useAuth();
   const { eventId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const [event, setEvent] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
   const [reportScores, setReportScores] = useState([]);
   const [specialSettings, setSpecialSettings] = useState(null);
@@ -32,9 +35,25 @@ export default function EventWorkspace() {
     async function fetchEvent() {
       try {
         setLoading(true);
+        setAccessDenied(false);
         const data = await eventService.getEventById(eventId);
         setEvent(data);
         if (data?.category === 'Special Event') {
+          const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+          if (!isAdmin) {
+            const grantedUsers = await specialEventService.getSpecialEventUserAccess(data.id);
+            const hasAccess = grantedUsers.some(u =>
+              (u.id && u.id === user?.id) ||
+              (u.userId && u.userId === user?.id) ||
+              (u.email && user?.email && u.email.toLowerCase() === user.email.toLowerCase())
+            );
+            if (!hasAccess) {
+              setAccessDenied(true);
+              setLoading(false);
+              return;
+            }
+          }
+
           try {
             const known = JSON.parse(sessionStorage.getItem('eventora_special_event_ids') || '[]');
             const slug = data.name ? slugify(data.name) : '';
@@ -64,7 +83,7 @@ export default function EventWorkspace() {
     return () => {
       document.title = 'Eventora';
     };
-  }, [eventId]);
+  }, [eventId, user?.id, user?.email]);
 
   const isSpecialEvent = event?.category === 'Special Event' || location.state?.fromSpecialEvents;
   const backPath = isSpecialEvent ? '/app/special-events' : '/app/events';
@@ -92,6 +111,27 @@ export default function EventWorkspace() {
 
   if (loading) {
     return <div className="py-20 text-center text-xs text-gray-400">Loading workspace...</div>;
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="py-20 text-center space-y-4 max-w-md mx-auto">
+        <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 flex items-center justify-center mx-auto shadow-sm">
+          <Crown className="w-7 h-7 text-amber-500" />
+        </div>
+        <h3 className="text-lg font-bold text-gray-900 dark:text-white">Special Event Access Restricted</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+          This is a restricted special event. You have not been granted access by the administrator to view or interact with this workspace.
+        </p>
+        <Link
+          to="/app/events"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Return to Dashboard</span>
+        </Link>
+      </div>
+    );
   }
 
   if (!event) {

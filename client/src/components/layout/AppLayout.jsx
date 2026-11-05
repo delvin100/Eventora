@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -23,6 +23,7 @@ import {
 import EventoraLogo from '../EventoraLogo';
 import { useAuth } from '../../context/AuthContext';
 import { useTheme } from '../../context/ThemeContext';
+import { specialEventService } from '../../services/specialEventService';
 
 export default function AppLayout() {
   const { user, profile, signOut } = useAuth();
@@ -32,9 +33,29 @@ export default function AppLayout() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [hasSpecialEventAccess, setHasSpecialEventAccess] = useState(false);
 
   // Check if current user is admin
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+
+  // Check if user has access to any special event
+  useEffect(() => {
+    let isMounted = true;
+    if (isAdmin) {
+      setHasSpecialEventAccess(true);
+      return;
+    }
+    if (user?.id || user?.email) {
+      specialEventService.getSpecialEvents(user).then((events) => {
+        if (isMounted) {
+          setHasSpecialEventAccess(Array.isArray(events) && events.length > 0);
+        }
+      }).catch(() => {});
+    } else {
+      setHasSpecialEventAccess(false);
+    }
+    return () => { isMounted = false; };
+  }, [user?.id, user?.email, isAdmin]);
 
   const navItems = [
     { name: 'Overview', to: '/app', icon: LayoutDashboard, exact: true },
@@ -42,7 +63,7 @@ export default function AppLayout() {
     { name: 'All Lists', to: '/app/lists', icon: ListOrdered },
     { name: 'Recent Results', to: '/app/results', icon: History },
     { name: 'Templates', to: '/app/templates', icon: FileBox },
-    ...(isAdmin ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown, isSpecial: true }] : []),
+    ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown, isSpecial: true }] : []),
     { name: 'Settings', to: '/app/settings', icon: Settings },
   ];
 

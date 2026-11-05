@@ -568,5 +568,70 @@ router.post('/reset-event', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/ps/registered-users
+ * Fetch all registered users in the system except admin
+ */
+router.get('/registered-users', async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.json({ success: true, users: [] });
+    }
+
+    // Try fetching from auth.admin.listUsers()
+    let authUsers = [];
+    try {
+      const { data } = await supabase.auth.admin.listUsers();
+      if (data?.users) {
+        authUsers = data.users;
+      }
+    } catch (e) {
+      console.warn('Could not list auth users via admin API:', e.message);
+    }
+
+    // Fetch profiles table
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('*');
+
+    const profileMap = new Map();
+    (profiles || []).forEach(p => {
+      profileMap.set(p.id, p);
+    });
+
+    const resultUsers = [];
+    if (authUsers.length > 0) {
+      authUsers.forEach(u => {
+        const email = u.email || '';
+        if (email.toLowerCase() === 'admin@gmail.com') return;
+        const prof = profileMap.get(u.id);
+        resultUsers.push({
+          id: u.id,
+          email: email,
+          displayName: prof?.display_name || u.user_metadata?.display_name || email.split('@')[0] || 'User',
+          usageType: prof?.usage_type || u.user_metadata?.usage_type || 'personal'
+        });
+      });
+    } else {
+      (profiles || []).forEach(p => {
+        if (p.id === 'f92acb4e-09b2-4f1c-ae6f-fc4d6e7601e1') return;
+        resultUsers.push({
+          id: p.id,
+          email: p.display_name?.toLowerCase().includes('@') ? p.display_name : `${p.display_name?.toLowerCase().replace(/\s+/g, '')}@user.app`,
+          displayName: p.display_name || 'User',
+          usageType: p.usage_type || 'personal'
+        });
+      });
+    }
+
+    return res.json({
+      success: true,
+      users: resultUsers
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
 
