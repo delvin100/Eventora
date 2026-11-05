@@ -1315,5 +1315,105 @@ router.delete('/allocations/:eventId/:userId', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/v1/ps/settings/:eventId
+ * Fetch special event settings (rounds, tasks, etc.)
+ */
+router.get('/settings/:eventId', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    if (!supabase || !eventId) {
+      return res.status(400).json({ success: false, message: 'Invalid eventId' });
+    }
+
+    const { data, error } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_settings')
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      return res.status(500).json({ success: false, message: error.message });
+    }
+
+    if (data?.result_snapshot) {
+      return res.json({ success: true, settings: data.result_snapshot });
+    }
+
+    // Default settings
+    const defaultSettings = {
+      roundsCount: 3,
+      rounds: [
+        { roundNumber: 1, task: '' },
+        { roundNumber: 2, task: '' },
+        { roundNumber: 3, task: '' }
+      ]
+    };
+
+    return res.json({ success: true, settings: defaultSettings });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/settings/:eventId
+ * Save special event settings
+ */
+router.post('/settings/:eventId', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const settings = req.body;
+
+    if (!supabase || !eventId || !settings) {
+      return res.status(400).json({ success: false, message: 'Invalid payload' });
+    }
+
+    const { data: event } = await supabase
+      .from('events')
+      .select('owner_id')
+      .eq('id', eventId)
+      .maybeSingle();
+
+    const ownerId = event?.owner_id || null;
+
+    const { data: existing } = await supabase
+      .from('results')
+      .select('id')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_settings')
+      .maybeSingle();
+
+    const resultName = `Special Event Settings (${settings.roundsCount || settings.rounds?.length || 1} Rounds)`;
+
+    if (existing?.id) {
+      const { error } = await supabase
+        .from('results')
+        .update({
+          result_snapshot: settings,
+          result_name: resultName
+        })
+        .eq('id', existing.id);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase
+        .from('results')
+        .insert([{
+          owner_id: ownerId,
+          event_id: eventId,
+          operation_type: 'special_event_settings',
+          result_name: resultName,
+          result_snapshot: settings
+        }]);
+      if (error) throw error;
+    }
+
+    return res.json({ success: true, settings });
+  } catch (err) {
+    next(err);
+  }
+});
+
 export default router;
 

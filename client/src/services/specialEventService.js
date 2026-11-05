@@ -308,7 +308,24 @@ export const specialEventService = {
 
   // Get settings for a special event (rounds, etc.)
   async getSpecialEventSettings(eventId) {
-    if (!supabase || !eventId) return null;
+    if (!eventId) return null;
+
+    // 1. Try backend API first (works for both admin and granted normal users without RLS restriction)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/settings/${eventId}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.settings) {
+          try {
+            localStorage.setItem(`special_event_settings_${eventId}`, JSON.stringify(json.settings));
+          } catch {}
+          return json.settings;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Direct Supabase fallback
+    if (!supabase) return null;
     const { data, error } = await supabase
       .from('results')
       .select('id, result_snapshot')
@@ -346,6 +363,25 @@ export const specialEventService = {
 
   // Save settings for a special event
   async saveSpecialEventSettings(eventId, settings) {
+    // 1. Try backend API first
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/settings/${eventId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.settings) {
+          try {
+            localStorage.setItem(`special_event_settings_${eventId}`, JSON.stringify(json.settings));
+          } catch {}
+          return json.settings;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Supabase fallback
     if (!supabase) throw new Error('Supabase is not configured');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');

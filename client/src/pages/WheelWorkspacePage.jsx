@@ -292,6 +292,9 @@ export default function WheelWorkspacePage() {
   const totalRoundsCount = configuredRounds.length || 2;
   const isFinalRound = currentRoundNumber >= totalRoundsCount;
 
+  // Eligible participants (excluding temporary removals)
+  const eligibleParticipants = allParticipants.filter(p => !removedIds.has(p.id));
+
   const requiredEvaluators = liveState?.requiredEvaluators || [];
   const submissions = liveState?.submissions || {};
   const submittedCount = requiredEvaluators.filter(u => Boolean(submissions[u])).length;
@@ -428,9 +431,6 @@ export default function WheelWorkspacePage() {
     }
     load();
   }, [eventId]);
-
-  // Eligible participants (excluding temporary removals)
-  const eligibleParticipants = allParticipants.filter(p => !removedIds.has(p.id));
 
   // Spin trigger
   const handleTriggerSpin = () => {
