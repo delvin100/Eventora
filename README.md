@@ -125,3 +125,4 @@ npm run dev:server
 
 ## 📄 License
 MIT. Built for Eventora — *Spin. Shuffle. Select. Organize.*
+<!-- Updated for production deployment -->
