@@ -228,7 +228,7 @@ export default function SettingsPage() {
 
           {/* Reset Action (Appears only after an event is chosen) */}
           {currentSelectedEvent && (
-            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-gray-100 dark:border-gray-800/80 animate-in fade-in slide-in-from-top-1 duration-150">
+            <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-gray-100 dark:border-gray-800/80 animate-in fade-in slide-in-from-top-1 duration-150">
               <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed max-w-md">
                 Resetting will permanently delete all participants, round tasks, scores, and wheel draw records for <span className="font-semibold text-gray-800 dark:text-gray-200">{currentSelectedEvent.name}</span> from the database. Authorized users will not be deleted.
               </p>
@@ -237,7 +237,7 @@ export default function SettingsPage() {
                 type="button"
                 onClick={() => setIsResetConfirmOpen(true)}
                 disabled={resetting}
-                className="px-5 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                className="px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 whitespace-nowrap"
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Reset {currentSelectedEvent.name} Data</span>

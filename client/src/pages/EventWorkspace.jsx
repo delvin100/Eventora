@@ -10,11 +10,13 @@ import {
   Award,
   Settings,
   Crown,
-  FileText
+  FileText,
+  Lock
 } from 'lucide-react';
 import { eventService } from '../services/eventService';
 import { specialEventService } from '../services/specialEventService';
 import { specialEventLiveService } from '../services/specialEventLiveService';
+import { participantService } from '../services/participantService';
 import SpecialEventDetailedReportModal from '../components/specialEvents/SpecialEventDetailedReportModal';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -26,6 +28,7 @@ export default function EventWorkspace() {
   const location = useLocation();
   const navigate = useNavigate();
   const [event, setEvent] = useState(null);
+  const [participantCount, setParticipantCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState(false);
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -54,6 +57,18 @@ export default function EventWorkspace() {
         if (isCancelled) return;
 
         setEvent(data);
+
+        // Fetch live participant count
+        try {
+          const parts = await participantService.getParticipants(data.id);
+          if (!isCancelled) {
+            setParticipantCount(parts ? parts.length : (data.participantCount || 0));
+          }
+        } catch (_) {
+          if (!isCancelled) {
+            setParticipantCount(data.participantCount || 0);
+          }
+        }
 
         if (data?.category === 'Special Event') {
           const isAdmin =
@@ -145,6 +160,24 @@ export default function EventWorkspace() {
     });
   }
 
+  const hasParticipants = participantCount > 0;
+
+  // If event has 0 participants, automatically keep user on Participants or Settings tab
+  useEffect(() => {
+    if (!loading && event && participantCount === 0) {
+      const isParticipantsTab =
+        location.pathname === `/app/events/${currentSlug}` ||
+        location.pathname === `/app/events/${eventId}` ||
+        location.pathname === `/app/events/${currentSlug}/` ||
+        location.pathname === `/app/events/${eventId}/`;
+      const isSettingsTab = location.pathname.endsWith('/settings');
+
+      if (!isParticipantsTab && !isSettingsTab) {
+        navigate(`/app/events/${currentSlug}`, { replace: true, state: location.state });
+      }
+    }
+  }, [loading, event?.id, participantCount, location.pathname, currentSlug, eventId]);
+
   if (authLoading || loading) {
     return (
       <div className="py-20 flex flex-col items-center justify-center gap-3 text-gray-400">
@@ -230,7 +263,7 @@ export default function EventWorkspace() {
 
         <div className="flex items-center gap-2 shrink-0">
           <span className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-semibold text-gray-800 dark:text-gray-200">
-            {event.participantCount || 0} Participants
+            {participantCount} Participant{participantCount === 1 ? '' : 's'}
           </span>
         </div>
       </div>
@@ -239,6 +272,22 @@ export default function EventWorkspace() {
       <div className="flex items-center gap-2 border-b border-gray-200/80 dark:border-gray-800 pb-px overflow-x-auto">
         {tabs.map((tab) => {
           const Icon = tab.icon;
+          const isTabDisabled = !hasParticipants && tab.name !== 'Participants' && tab.name !== 'Settings';
+
+          if (isTabDisabled) {
+            return (
+              <div
+                key={tab.name}
+                title="Add participants first to unlock this tab"
+                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-gray-400/60 dark:text-gray-600 cursor-not-allowed select-none whitespace-nowrap opacity-50"
+              >
+                <Icon className="w-4 h-4 opacity-50" />
+                <span>{tab.name}</span>
+                <Lock className="w-3 h-3 text-gray-400/70 ml-0.5" />
+              </div>
+            );
+          }
+
           return (
             <NavLink
               key={tab.name}
@@ -262,7 +311,7 @@ export default function EventWorkspace() {
 
       {/* Sub-view / Tab content outlet */}
       <div>
-        <Outlet context={{ event, eventId: event?.id }} />
+        <Outlet context={{ event, eventId: event?.id, participantCount, onParticipantCountChange: setParticipantCount }} />
       </div>
 
       {/* Special Event Detailed Report Modal */}

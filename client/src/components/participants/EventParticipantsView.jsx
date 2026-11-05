@@ -79,7 +79,7 @@ function StylishDropdown({ value, onChange, options, minWidth = 'w-48' }) {
   );
 }
 
-export default function EventParticipantsView({ eventId, eventName = 'Event' }) {
+export default function EventParticipantsView({ eventId, eventName = 'Event', onParticipantCountChange }) {
   const [participants, setParticipants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -104,6 +104,9 @@ export default function EventParticipantsView({ eventId, eventName = 'Event' }) 
       setLoading(true);
       const data = await participantService.getParticipants(eventId);
       setParticipants(data);
+      if (onParticipantCountChange) {
+        onParticipantCountChange(data ? data.length : 0);
+      }
     } catch (err) {
       console.error('Failed to load participants:', err);
     } finally {

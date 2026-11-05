@@ -34,11 +34,9 @@ export default function SpecialEventSettingsPage() {
   const [resetting, setResetting] = useState(false);
   const [resetSuccessMsg, setResetSuccessMsg] = useState(null);
 
-  const [roundsCount, setRoundsCount] = useState(3);
+  const [roundsCount, setRoundsCount] = useState(1);
   const [rounds, setRounds] = useState([
-    { roundNumber: 1, task: '' },
-    { roundNumber: 2, task: '' },
-    { roundNumber: 3, task: '' }
+    { roundNumber: 1, task: '' }
   ]);
 
   useEffect(() => {
@@ -48,7 +46,7 @@ export default function SpecialEventSettingsPage() {
         setLoading(true);
         const data = await specialEventService.getSpecialEventSettings(eventId);
         if (data) {
-          const count = typeof data.roundsCount === 'number' ? data.roundsCount : (data.rounds?.length || 3);
+          const count = typeof data.roundsCount === 'number' ? data.roundsCount : (data.rounds?.length || 1);
           setRoundsCount(Math.max(1, count));
           if (Array.isArray(data.rounds) && data.rounds.length > 0) {
             const OLD_DEFAULTS = [
@@ -63,6 +61,8 @@ export default function SpecialEventSettingsPage() {
                 task: OLD_DEFAULTS.includes(rawTask) ? '' : rawTask
               };
             }));
+          } else {
+            setRounds([{ roundNumber: 1, task: '' }]);
           }
         }
       } catch (err) {
@@ -378,16 +378,6 @@ export default function SpecialEventSettingsPage() {
 
       {/* Reset Special Event Data (Admin & Authorized Access Users) */}
       <div className="p-6 rounded-3xl bg-white dark:bg-[#161925] border border-red-200/80 dark:border-red-900/40 shadow-sm space-y-4">
-        <div>
-          <h3 className="text-sm font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-500" />
-            <span>Reset Special Event Data</span>
-          </h3>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed max-w-xl">
-            Permanently wipe all registered participants, evaluator login credentials, configured round tasks, evaluator scores, and historical wheel draws for this event from the database. Authorized users will be kept intact.
-          </p>
-        </div>
-
         {resetSuccessMsg && (
           <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
@@ -395,16 +385,28 @@ export default function SpecialEventSettingsPage() {
           </div>
         )}
 
-        <div className="pt-2 flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => setIsResetConfirmOpen(true)}
-            disabled={resetting}
-            className="px-5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-md shadow-red-600/25 flex items-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Reset {event?.name || 'Special Event'} Data</span>
-          </button>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
+          <div className="space-y-1 max-w-xl">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0" />
+              <span>Reset Special Event Data</span>
+            </h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+              Permanently wipe all registered participants, evaluator login credentials, configured round tasks, evaluator scores, and historical wheel draws for this event from the database. Authorized users will be kept intact.
+            </p>
+          </div>
+
+          <div className="shrink-0 flex sm:items-center">
+            <button
+              type="button"
+              onClick={() => setIsResetConfirmOpen(true)}
+              disabled={resetting}
+              className="px-6 py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold shadow-lg shadow-red-600/30 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Reset {event?.name || 'Special Event'} Data</span>
+            </button>
+          </div>
         </div>
       </div>
 

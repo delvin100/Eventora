@@ -27,5 +27,11 @@ export default function EventParticipantsPage() {
   const effectiveId = resolvedEvent?.id || outletCtx?.eventId || paramId;
   const effectiveName = resolvedEvent?.name || 'Event';
 
-  return <EventParticipantsView eventId={effectiveId} eventName={effectiveName} />;
+  return (
+    <EventParticipantsView
+      eventId={effectiveId}
+      eventName={effectiveName}
+      onParticipantCountChange={outletCtx?.onParticipantCountChange}
+    />
+  );
 }

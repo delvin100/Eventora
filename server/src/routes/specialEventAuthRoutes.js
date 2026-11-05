@@ -1348,11 +1348,9 @@ router.get('/settings/:eventId', async (req, res, next) => {
 
     // Default settings
     const defaultSettings = {
-      roundsCount: 3,
+      roundsCount: 1,
       rounds: [
-        { roundNumber: 1, task: '' },
-        { roundNumber: 2, task: '' },
-        { roundNumber: 3, task: '' }
+        { roundNumber: 1, task: '' }
       ]
     };
 
