@@ -4,6 +4,62 @@ import { slugify } from '../utils/slugUtils';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 export const eventService = {
+  // Fetch all events across all users (Admin only)
+  async getAllUsersEvents(user = null) {
+    let currentUser = user;
+    if (!currentUser && supabase) {
+      const { data } = await supabase.auth.getUser();
+      currentUser = data?.user;
+    }
+
+    const email = currentUser?.email || '';
+
+    // 1. Try Backend Admin API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/admin/all-events?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.events)) {
+          return json.events;
+        }
+      }
+    } catch (err) {
+      console.warn('Backend all-events API fetch failed, trying fallback:', err);
+    }
+
+    // 2. Supabase Fallback (if user has direct access)
+    if (supabase) {
+      try {
+        const [{ data: events }, { data: profiles }] = await Promise.all([
+          supabase.from('events').select('*, participants(id)').order('created_at', { ascending: false }),
+          supabase.from('profiles').select('*')
+        ]);
+
+        const profileMap = new Map();
+        (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+        return (events || []).map(ev => {
+          const profile = profileMap.get(ev.owner_id);
+          const ownerEmail = profile?.display_name?.includes('@') ? profile.display_name : `${profile?.display_name?.toLowerCase().replace(/\s+/g, '') || 'user'}@eventora.app`;
+          return {
+            ...ev,
+            participantCount: ev.participants ? ev.participants.length : 0,
+            owner: {
+              id: ev.owner_id,
+              displayName: profile?.display_name || 'Organizer',
+              email: ownerEmail,
+              usageType: profile?.usage_type || 'personal'
+            }
+          };
+        });
+      } catch (fbErr) {
+        console.error('Supabase fallback all-events failed:', fbErr);
+      }
+    }
+
+    return [];
+  },
+
   // Fetch all events for the current user from Supabase
   async getEvents() {
     if (!supabase) return [];
@@ -41,8 +97,22 @@ export const eventService = {
         .maybeSingle();
 
       if (!error && data) {
+        let owner = null;
+        try {
+          const { data: prof } = await supabase.from('profiles').select('*').eq('id', data.owner_id).maybeSingle();
+          if (prof) {
+            owner = {
+              id: prof.id,
+              displayName: prof.display_name || 'Organizer',
+              email: prof.display_name?.includes('@') ? prof.display_name : `${prof.display_name?.toLowerCase().replace(/\s+/g, '') || 'user'}@eventora.app`,
+              usageType: prof.usage_type || 'personal'
+            };
+          }
+        } catch (_) {}
+
         return {
           ...data,
+          owner: owner || data.owner || null,
           participantCount: data.participants ? data.participants.length : 0
         };
       }
@@ -75,7 +145,18 @@ export const eventService = {
       }
     }
 
-    // Fallback: Query backend API for Special Events (bypasses RLS for authorized normal users)
+    // Fallback 1: Query backend API for General Events (Admin super-access or cross-user lookup)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/events/${encodeURIComponent(idOrSlug)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.event) {
+          return json.event;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback 2: Query backend API for Special Events (bypasses RLS for authorized normal users)
     try {
       const res = await fetch(`${API_BASE_URL}/ps/special-events/${encodeURIComponent(idOrSlug)}`);
       if (res.ok) {

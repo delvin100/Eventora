@@ -48,7 +48,7 @@ export default function WheelWorkspacePage() {
       const saved = localStorage.getItem(`eventora_wheel_fair_turn_${eventId}`) ?? localStorage.getItem('eventora_wheel_fair_turn');
       if (saved !== null) return saved === 'true';
     } catch (_) {}
-    return false;
+    return true; // Fair turn ON by default
   });
   const [duration, setDuration] = useState(() => {
     try {
@@ -212,7 +212,11 @@ export default function WheelWorkspacePage() {
       if (savedCelebration !== null) setCelebrationEnabled(savedCelebration === 'true');
 
       const savedFairTurn = localStorage.getItem(`eventora_wheel_fair_turn_${eventId}`) ?? localStorage.getItem('eventora_wheel_fair_turn');
-      if (savedFairTurn !== null) setRemoveWinnerOnDraw(savedFairTurn === 'true');
+      if (savedFairTurn !== null) {
+        setRemoveWinnerOnDraw(savedFairTurn === 'true');
+      } else {
+        setRemoveWinnerOnDraw(true);
+      }
 
       const savedDuration = localStorage.getItem(`eventora_wheel_duration_${eventId}`) ?? localStorage.getItem('eventora_wheel_duration');
       if (savedDuration !== null) {
@@ -783,7 +787,7 @@ export default function WheelWorkspacePage() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
           {/* Wheel Stage (Left / Main) */}
-          <div className="lg:col-span-7 flex flex-col items-center justify-center p-6 sm:p-10 bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 rounded-3xl shadow-sm relative overflow-hidden">
+          <div className="lg:col-span-7 flex flex-col items-center justify-center p-3 sm:p-6 lg:p-10 bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 rounded-3xl shadow-sm relative overflow-hidden">
             {/* Ambient Background Glow */}
             <div className="absolute inset-0 bg-gradient-to-tr from-indigo-500/5 via-violet-500/5 to-transparent rounded-3xl pointer-events-none" />
 
@@ -798,7 +802,7 @@ export default function WheelWorkspacePage() {
             />
 
             {/* Quick Status Subtitle */}
-            <div className="mt-4 text-xs font-medium text-gray-500 dark:text-gray-400">
+            <div className="mt-4 text-xs font-medium text-gray-500 dark:text-gray-400 text-center">
               {eligibleParticipants.length} of {allParticipants.length} participants eligible
             </div>
           </div>

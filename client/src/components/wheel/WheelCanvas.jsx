@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
+import React, { useState, useRef, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { playTickSound } from './audio/wheelAudio';
 
 // Luxury satin segment color palettes with highlights & shadows for realistic 3D depth
@@ -46,6 +46,65 @@ function playMechanicalClick(audioCtxRef) {
   }
 }
 
+// Helper to intelligently format long names or 2/3-word names across two lines
+// so that all parts (first, middle, last name) are completely visible without cutoffs or ellipses
+function splitNameForWheel(name) {
+  if (!name) return [''];
+  const trimmed = name.trim();
+  if (trimmed.length <= 13) return [trimmed];
+
+  const words = trimmed.split(/\s+/);
+  if (words.length === 1) {
+    return [trimmed];
+  }
+  if (words.length === 2) {
+    if (trimmed.length <= 14) return [trimmed];
+    return [words[0], words[1]];
+  }
+
+  // 3 or more words: e.g. ["Pradeep", "Kumar", "Sharma"]
+  const opt1L1 = words.slice(0, 2).join(' ');
+  const opt1L2 = words.slice(2).join(' ');
+  const opt2L1 = words[0];
+  const opt2L2 = words.slice(1).join(' ');
+
+  const max1 = Math.max(opt1L1.length, opt1L2.length);
+  const max2 = Math.max(opt2L1.length, opt2L2.length);
+  return max1 <= max2 ? [opt1L1, opt1L2] : [opt2L1, opt2L2];
+}
+
+// Infinite Continuous Conveyor: maps continuous rotation to seamless infinite participant loop
+function getParticipantForWedge(i, currentRotation, totalCount, visibleCount) {
+  if (totalCount <= visibleCount) {
+    return i % totalCount;
+  }
+  const arc = (2 * Math.PI) / visibleCount;
+  const wedgeCenter = i * arc + arc / 2;
+  const lap = Math.floor((currentRotation + wedgeCenter - Math.PI / 2) / (2 * Math.PI));
+  const pIndex = (((-i + lap * visibleCount) % totalCount) + totalCount) % totalCount;
+  return pIndex;
+}
+
+// Resolves which participant is currently under the top needle pointer (-PI / 2)
+function getParticipantAtPointer(currentRotation, totalCount, visibleCount) {
+  const arc = (2 * Math.PI) / visibleCount;
+  const pointerAngle = -Math.PI / 2;
+  const angleAtPointer = (((pointerAngle - (currentRotation % (2 * Math.PI))) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+  const currentWedge = Math.floor(angleAtPointer / arc) % visibleCount;
+  return getParticipantForWedge(currentWedge, currentRotation, totalCount, visibleCount);
+}
+
+// Fisher-Yates array shuffle helper to ensure names on wheel are randomized and never in static order
+function shuffleArray(items) {
+  if (!Array.isArray(items) || items.length <= 1) return items ? [...items] : [];
+  const a = [...items];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 const WheelCanvas = forwardRef(function WheelCanvas(
   {
     participants = [],
@@ -68,30 +127,46 @@ const WheelCanvas = forwardRef(function WheelCanvas(
   const flapperDeflectionRef = useRef(0); // Physical spring angle of the stopper
   const audioCtxRef = useRef(null);
 
+  // Maintain randomized/shuffled pool so names are never in predictable alphabetical/input order
+  const [shuffledParticipants, setShuffledParticipants] = useState(() => shuffleArray(participants));
+
+  useEffect(() => {
+    setShuffledParticipants(shuffleArray(participants));
+  }, [participants]);
+
+  const pool = shuffledParticipants.length === participants.length ? shuffledParticipants : participants;
+
+  const MAX_VISIBLE = 12; // Cap visible wheel segments to 12 wide, clear slices
+  const isRolling = pool.length > MAX_VISIBLE;
+  const numSegments = isRolling ? MAX_VISIBLE : pool.length;
+
   useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
 
   // Lazy-init AudioContext on user interaction
   const initAudio = () => {
-    if (!audioCtxRef.current) {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (AudioCtx) {
-        audioCtxRef.current = new AudioCtx();
+    try {
+      if (!audioCtxRef.current) {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          audioCtxRef.current = new AudioCtx();
+        }
       }
-    }
-    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume().catch(() => {});
+      }
+    } catch {
+      // AudioContext could fail gracefully
     }
   };
 
   // Expose spin action via imperative ref
   useImperativeHandle(ref, () => ({
     spin: () => startSpin(),
+    reshuffle: () => setShuffledParticipants(shuffleArray(participants)),
     isSpinning: () => isSpinningRef.current
   }));
-
-  const numSegments = participants.length;
 
   const drawWheel = useCallback((rotation) => {
     const canvas = canvasRef.current;
@@ -254,36 +329,52 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.stroke();
 
-      // Segment Typography
+      // Segment Typography (Radial along the slice centerline)
       ctx.save();
-      const textRadius = wheelRadius * 0.62;
-      ctx.translate(
-        Math.cos(angle + arc / 2) * textRadius,
-        Math.sin(angle + arc / 2) * textRadius
-      );
-      ctx.rotate(angle + arc / 2 + Math.PI / 2);
+      const midAngle = angle + arc / 2;
+      ctx.rotate(midAngle);
+
+      // Radial placement: centered in the spacious portion of the wedge
+      const textRadius = wheelRadius * 0.60;
+      ctx.translate(textRadius, 0);
+
+      // Drop shadow for legibility
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetY = 1;
+      ctx.fillStyle = '#FFFFFF';
+
+      const pIndex = isRolling
+        ? getParticipantForWedge(i, rotation, pool.length, MAX_VISIBLE)
+        : i;
+      const p = pool[pIndex];
+      const displayName = p?.name?.trim() || '';
+
+      // Auto-format long or 2/3-word names across 2 lines to ensure 100% visibility of all words
+      const lines = splitNameForWheel(displayName);
+      const isTwoLine = lines.length > 1;
+
+      const longestLine = lines.reduce((max, l) => Math.max(max, l.length), 0);
+      let fontSize = isTwoLine ? 10.5 : (numSegments <= 6 ? 14 : numSegments <= 8 ? 13 : numSegments <= 12 ? 12 : 11);
+      if (longestLine > 16) fontSize = isTwoLine ? 9 : 10;
+      else if (longestLine > 13 && !isTwoLine) fontSize = 11;
+
+      ctx.font = `bold ${fontSize}px "Inter", system-ui, -apple-system, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Drop shadow for legibility
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.75)';
-      ctx.shadowBlur = 5;
-      ctx.shadowOffsetY = 1.5;
-      ctx.fillStyle = '#FFFFFF';
+      if (isTwoLine) {
+        const lineSpacing = fontSize + 2.5;
+        ctx.fillText(lines[0], 0, -lineSpacing / 2);
+        ctx.fillText(lines[1], 0, lineSpacing / 2);
+      } else {
+        ctx.fillText(lines[0], 0, 0);
+      }
 
-      const fontSize = numSegments > 36 ? 9 : numSegments > 24 ? 10 : numSegments > 16 ? 11 : numSegments > 10 ? 12 : 13.5;
-      ctx.font = `600 ${fontSize}px "Inter", system-ui, -apple-system, sans-serif`;
-
-      let displayName = participants[i]?.name || '';
-      const maxChars = numSegments > 24 ? 10 : numSegments > 16 ? 14 : 18;
-      if (displayName.length > maxChars) displayName = displayName.slice(0, maxChars - 1) + '…';
-
-      ctx.fillText(displayName, 0, 0);
-
-      // Subtle inner rim dot
+      // Subtle inner rim dot (present on every segment)
       ctx.shadowColor = 'transparent';
       ctx.beginPath();
-      ctx.arc(0, -textRadius * 0.45, 2, 0, 2 * Math.PI);
+      ctx.arc(-textRadius + wheelRadius * 0.30, 0, 2.8, 0, 2 * Math.PI);
       ctx.fillStyle = theme.accent;
       ctx.fill();
 
@@ -300,7 +391,7 @@ const WheelCanvas = forwardRef(function WheelCanvas(
     // =========================================================================
     // 4. METALLIC 3D STOPPER PEGS (Pins located at spoke boundaries)
     // =========================================================================
-    const maxPegs = Math.min(numSegments, 32);
+    const maxPegs = numSegments;
     for (let i = 0; i < maxPegs; i++) {
       const pegAngle = (i * (2 * Math.PI)) / maxPegs;
       const px = Math.cos(pegAngle) * pegTrackRadius;
@@ -504,7 +595,7 @@ const WheelCanvas = forwardRef(function WheelCanvas(
 
     ctx.restore();
     ctx.restore();
-  }, [numSegments, participants, soundEnabled]);
+  }, [numSegments, isRolling, pool, soundEnabled]);
 
   // =========================================================================
   // 8. AMBIENT AUTOMATIC SLOW CONTINUOUS IDLE ROTATION
@@ -517,10 +608,16 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       lastTime = now;
 
       // Only spin automatically when not actively spinning, not paused by dialog, and has participants
-      if (!isSpinningRef.current && !isPausedRef.current && numSegments > 0) {
-        // Hypnotic luxury turn: ~0.00042 rad/ms (~24s per full rotation)
-        const idleSpeed = 0.00042;
-        currentRotationRef.current = (currentRotationRef.current + idleSpeed * delta) % (2 * Math.PI);
+      if (!isSpinningRef.current && !isPausedRef.current && pool.length > 0) {
+        // Hypnotic luxury continuous turn: ~0.00045 rad/ms
+        const idleSpeed = 0.00045;
+        currentRotationRef.current += idleSpeed * delta;
+        // Keep within safe numerical bounds while preserving conveyor continuity
+        if (currentRotationRef.current > 100000) {
+          const fullConveyorCycle = (pool.length || 1) * 2 * Math.PI;
+          currentRotationRef.current %= fullConveyorCycle;
+        }
+
         drawWheel(currentRotationRef.current);
       }
 
@@ -534,7 +631,7 @@ const WheelCanvas = forwardRef(function WheelCanvas(
         cancelAnimationFrame(idleFrameIdRef.current);
       }
     };
-  }, [drawWheel, numSegments]);
+  }, [drawWheel, pool.length]);
 
   // Initial draw
   useEffect(() => {
@@ -542,15 +639,17 @@ const WheelCanvas = forwardRef(function WheelCanvas(
   }, [drawWheel]);
 
   // =========================================================================
-  // 9. HIGH-PRECISION USER SPIN DECELERATION PHYSICS
+  // 9. HIGH-PRECISION USER SPIN DECELERATION PHYSICS (INFINITE CONVEYOR WHEEL)
   // =========================================================================
   const startSpin = () => {
-    if (isSpinningRef.current || numSegments === 0) return;
-    if (numSegments === 1) {
+    if (isSpinningRef.current || pool.length === 0) return;
+    const totalCount = pool.length;
+
+    if (totalCount === 1) {
       if (onSpinStart) onSpinStart();
       isSpinningRef.current = false;
       if (onSpinEnd) {
-        onSpinEnd(participants[0]);
+        onSpinEnd(pool[0]);
       }
       return;
     }
@@ -558,26 +657,43 @@ const WheelCanvas = forwardRef(function WheelCanvas(
     isSpinningRef.current = true;
     if (onSpinStart) onSpinStart();
 
-    // 1. Choose winning index mathematically before animation
-    const winningIndex = Math.floor(Math.random() * numSegments);
-    const winner = participants[winningIndex];
+    // 1. Fairly pick winning index across entire pool (100% equal mathematical probability)
+    const winningOverallIndex = Math.floor(Math.random() * totalCount);
+    const winner = pool[winningOverallIndex];
 
-    // 2. Calculate exact target angle (Pointer is at top: -PI / 2)
-    const arc = (2 * Math.PI) / numSegments;
-    const targetSegmentCenter = winningIndex * arc + arc / 2;
-    // Add subtle jitter inside segment wedge so it doesn't land on dead center every time
-    const jitter = (Math.random() - 0.5) * (arc * 0.55);
-    const targetAngleAtPointer = -Math.PI / 2 - targetSegmentCenter + jitter;
-
-    // Normalizing rotations (6-9 full high-speed spins)
-    const minFullRotations = 6 + Math.floor(Math.random() * 3);
-    const normalizedCurrent = currentRotationRef.current % (2 * Math.PI);
-    let delta = (targetAngleAtPointer - normalizedCurrent) % (2 * Math.PI);
-    if (delta < 0) delta += 2 * Math.PI;
-
-    const totalRotation = minFullRotations * 2 * Math.PI + delta;
+    const isRollingMode = totalCount > MAX_VISIBLE;
+    const visibleCount = isRollingMode ? MAX_VISIBLE : totalCount;
+    const arc = (2 * Math.PI) / visibleCount;
     const startAngle = currentRotationRef.current;
-    const finalAngle = startAngle + totalRotation;
+    let finalAngle;
+
+    if (!isRollingMode) {
+      // Standard static wheel mode (<= 12 participants)
+      const targetSegmentCenter = winningOverallIndex * arc + arc / 2;
+      const jitter = (Math.random() - 0.5) * (arc * 0.45);
+      const targetAngleAtPointer = -Math.PI / 2 - targetSegmentCenter + jitter;
+
+      const minFullRotations = 6 + Math.floor(Math.random() * 3);
+      const normalizedCurrent = startAngle % (2 * Math.PI);
+      let delta = (targetAngleAtPointer - normalizedCurrent) % (2 * Math.PI);
+      if (delta < 0) delta += 2 * Math.PI;
+
+      const totalRotation = minFullRotations * 2 * Math.PI + delta;
+      finalAngle = startAngle + totalRotation;
+    } else {
+      // Infinite Continuous Conveyor mode (> 12 participants):
+      // Calculate current participant under top needle pointer
+      const currentP = getParticipantAtPointer(startAngle, totalCount, visibleCount);
+      const stepsToWinner = (((winningOverallIndex - currentP) % totalCount) + totalCount) % totalCount;
+
+      // Add minimum full rotations so the wheel spins excitingly fast
+      const minSpins = 6 + Math.floor(Math.random() * 3);
+      const minSteps = minSpins * visibleCount;
+      const poolRounds = Math.max(1, Math.ceil(minSteps / totalCount));
+      const totalSteps = poolRounds * totalCount + stepsToWinner;
+
+      finalAngle = startAngle + totalSteps * arc;
+    }
 
     const spinDurationMs = (duration || 5) * 1000;
     const startTime = performance.now();
@@ -597,9 +713,12 @@ const WheelCanvas = forwardRef(function WheelCanvas(
         animFrameIdRef.current = requestAnimationFrame(animate);
       } else {
         isSpinningRef.current = false;
+        drawWheel(finalAngle);
         if (onSpinEnd) {
           onSpinEnd(winner);
         }
+        // Reshuffle pool for next spin so slices are always randomized in different order
+        setShuffledParticipants(shuffleArray(participants));
       }
     };
 
@@ -607,11 +726,11 @@ const WheelCanvas = forwardRef(function WheelCanvas(
   };
 
   return (
-    <div className={`relative flex items-center justify-center ${className}`}>
+    <div className={`relative flex items-center justify-center w-full ${className}`}>
       <canvas
         ref={canvasRef}
-        style={{ width: 440, height: 440 }}
-        className="max-w-full h-auto drop-shadow-[0_20px_45px_rgba(0,0,0,0.65)] select-none cursor-pointer active:scale-[0.99] transition-transform"
+        style={{ width: 'min(100%, 440px)', height: 'auto', aspectRatio: '1 / 1' }}
+        className="max-w-full drop-shadow-[0_20px_45px_rgba(0,0,0,0.65)] select-none cursor-pointer active:scale-[0.99] transition-transform"
         onClick={() => startSpin()}
         title="Click wheel to spin"
       />

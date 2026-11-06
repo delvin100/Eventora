@@ -63,12 +63,18 @@ export const eventController = {
         return res.status(503).json({ error: 'Supabase database is not configured' });
       }
 
-      const { data, error } = await supabase
+      const isAdmin = req.user?.email === 'admin@gmail.com' || req.user?.user_metadata?.role === 'admin';
+
+      let query = supabase
         .from('events')
         .select('*')
-        .eq('id', eventId)
-        .eq('owner_id', req.user.id)
-        .single();
+        .eq('id', eventId);
+
+      if (!isAdmin) {
+        query = query.eq('owner_id', req.user.id);
+      }
+
+      const { data, error } = await query.single();
 
       if (error) throw error;
       res.json(data);
@@ -80,7 +86,16 @@ export const eventController = {
   async deleteEvent(req, res, next) {
     try {
       const { eventId } = req.params;
+      const isAdmin = req.user?.email === 'admin@gmail.com' || req.user?.user_metadata?.role === 'admin';
+
       if (isSupabaseEnabled && supabase) {
+        if (!isAdmin) {
+          const { data: ev } = await supabase.from('events').select('owner_id').eq('id', eventId).single();
+          if (!ev || ev.owner_id !== req.user.id) {
+            return res.status(403).json({ error: 'Permission denied' });
+          }
+        }
+
         // Explicitly wipe related participants and results
         await supabase.from('participants').delete().eq('event_id', eventId);
         await supabase.from('results').delete().eq('event_id', eventId);

@@ -79,9 +79,20 @@ function StylishDropdown({ value, onChange, options, minWidth = 'w-48' }) {
   );
 }
 
-export default function EventParticipantsView({ eventId, eventName = 'Event', onParticipantCountChange }) {
-  const [participants, setParticipants] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function EventParticipantsView({
+  eventId,
+  eventName = 'Event',
+  onParticipantCountChange,
+  customParticipants,
+  onAddParticipant,
+  onUpdateParticipant,
+  onBulkAddParticipants,
+  onDeleteParticipant,
+  onBulkDeleteParticipants
+}) {
+  const isCustom = Array.isArray(customParticipants);
+  const [participants, setParticipants] = useState(isCustom ? customParticipants : []);
+  const [loading, setLoading] = useState(!isCustom);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState('az'); // az, za, newest, oldest
   const [selectedDept, setSelectedDept] = useState('All');
@@ -98,12 +109,24 @@ export default function EventParticipantsView({ eventId, eventName = 'Event', on
   // Confirm delete dialog state
   const [confirmDeleteConfig, setConfirmDeleteConfig] = useState(null);
 
-  // Load participants
+  // Sync custom participants when updated
+  useEffect(() => {
+    if (isCustom) {
+      setParticipants(customParticipants);
+      setLoading(false);
+      if (onParticipantCountChange) {
+        onParticipantCountChange(customParticipants.length);
+      }
+    }
+  }, [customParticipants, isCustom]);
+
+  // Load participants from participantService
   const loadData = async () => {
+    if (isCustom) return;
     try {
       setLoading(true);
       const data = await participantService.getParticipants(eventId);
-      setParticipants(data);
+      setParticipants(data || []);
       if (onParticipantCountChange) {
         onParticipantCountChange(data ? data.length : 0);
       }
@@ -115,16 +138,18 @@ export default function EventParticipantsView({ eventId, eventName = 'Event', on
   };
 
   useEffect(() => {
-    loadData();
-    setSelectedIds(new Set());
-  }, [eventId]);
+    if (!isCustom) {
+      loadData();
+      setSelectedIds(new Set());
+    }
+  }, [eventId, isCustom]);
 
   // Filter & Sort
   const filtered = participants
-    .filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+    .filter(p => (p.name || '').toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === 'az') return a.name.localeCompare(b.name);
-      if (sortBy === 'za') return b.name.localeCompare(a.name);
+      if (sortBy === 'az') return (a.name || '').localeCompare(b.name || '');
+      if (sortBy === 'za') return (b.name || '').localeCompare(a.name || '');
       if (sortBy === 'newest') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
       if (sortBy === 'oldest') return new Date(a.created_at || 0) - new Date(b.created_at || 0);
       return 0;
@@ -132,28 +157,44 @@ export default function EventParticipantsView({ eventId, eventName = 'Event', on
 
   // Handlers
   const handleAddOrEdit = async (data) => {
-    if (editingItem) {
-      await participantService.updateParticipant(eventId, editingItem.id, data);
+    if (isCustom) {
+      if (editingItem) {
+        if (onUpdateParticipant) await onUpdateParticipant(editingItem.id, data);
+      } else {
+        if (onAddParticipant) await onAddParticipant(data);
+      }
     } else {
-      await participantService.addParticipant(eventId, data);
+      if (editingItem) {
+        await participantService.updateParticipant(eventId, editingItem.id, data);
+      } else {
+        await participantService.addParticipant(eventId, data);
+      }
+      loadData();
     }
     setEditingItem(null);
-    loadData();
   };
 
   const handleBulkAdd = async (items) => {
-    await participantService.bulkAddParticipants(eventId, items);
-    loadData();
+    if (isCustom) {
+      if (onBulkAddParticipants) await onBulkAddParticipants(items);
+    } else {
+      await participantService.bulkAddParticipants(eventId, items);
+      loadData();
+    }
   };
 
   const handleDeleteOne = (id, name) => {
     setConfirmDeleteConfig({
       title: `Remove "${name}"?`,
-      message: `Are you sure you want to remove "${name}" from this event?`,
+      message: `Are you sure you want to remove "${name}"?`,
       confirmText: 'Remove Participant',
       action: async () => {
-        await participantService.deleteParticipant(eventId, id);
-        loadData();
+        if (isCustom) {
+          if (onDeleteParticipant) await onDeleteParticipant(id);
+        } else {
+          await participantService.deleteParticipant(eventId, id);
+          loadData();
+        }
       }
     });
   };
@@ -162,12 +203,17 @@ export default function EventParticipantsView({ eventId, eventName = 'Event', on
     if (selectedIds.size === 0) return;
     setConfirmDeleteConfig({
       title: `Remove ${selectedIds.size} Participants?`,
-      message: `Are you sure you want to remove all ${selectedIds.size} selected participants from this event?`,
+      message: `Are you sure you want to remove all ${selectedIds.size} selected participants?`,
       confirmText: `Remove ${selectedIds.size} Participants`,
       action: async () => {
-        await participantService.bulkDelete(eventId, Array.from(selectedIds));
+        const ids = Array.from(selectedIds);
+        if (isCustom) {
+          if (onBulkDeleteParticipants) await onBulkDeleteParticipants(ids);
+        } else {
+          await participantService.bulkDelete(eventId, ids);
+          loadData();
+        }
         setSelectedIds(new Set());
-        loadData();
       }
     });
   };

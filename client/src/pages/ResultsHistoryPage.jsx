@@ -180,13 +180,13 @@ export default function ResultsHistoryPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-gray-50/80 dark:bg-[#141722] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider border-b border-gray-200/80 dark:border-gray-800">
                   <tr>
-                    <th className="px-6 py-3.5">Participant</th>
-                    <th className="px-6 py-3.5">Round</th>
-                    <th className="px-6 py-3.5">Evaluator</th>
-                    <th className="px-6 py-3.5">Base Score</th>
-                    <th className="px-6 py-3.5">Grace</th>
-                    <th className="px-6 py-3.5">Total Marks</th>
-                    <th className="px-6 py-3.5">Recorded At</th>
+                    <th className="px-6 py-3.5 text-left">Participant</th>
+                    <th className="px-6 py-3.5 text-center">Round</th>
+                    <th className="px-6 py-3.5 text-center">Evaluator</th>
+                    <th className="px-6 py-3.5 text-center">Base Score</th>
+                    <th className="px-6 py-3.5 text-center">Grace</th>
+                    <th className="px-6 py-3.5 text-center">Total Marks</th>
+                    <th className="px-6 py-3.5 text-center">Recorded At</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300">
@@ -197,7 +197,7 @@ export default function ResultsHistoryPage() {
 
                     return (
                       <tr key={scoreItem.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
-                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                        <td className="px-6 py-4 font-bold text-gray-900 dark:text-white text-left">
                           <div className="flex items-center gap-2">
                             <div className="w-7 h-7 rounded-lg bg-violet-600/20 text-violet-400 font-black text-xs flex items-center justify-center">
                               {scoreItem.studentName?.charAt(0) || 'P'}
@@ -205,31 +205,31 @@ export default function ResultsHistoryPage() {
                             <span>{scoreItem.studentName}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 text-center">
                           <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-500/10 text-violet-600 dark:text-violet-300 border border-violet-500/20">
                             Round {scoreItem.roundNumber}
                           </span>
                         </td>
-                        <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-200">
-                          <div className="flex items-center gap-1.5">
+                        <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-200 text-center">
+                          <div className="inline-flex items-center gap-1.5">
                             <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
                             <span>{scoreItem.evaluator}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-200">
+                        <td className="px-6 py-4 font-semibold text-gray-800 dark:text-gray-200 text-center">
                           {baseScore} pts
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 text-center">
                           <span className="font-bold text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
                             +{graceVal}
                           </span>
                         </td>
-                        <td className="px-6 py-4">
+                        <td className="px-6 py-4 text-center">
                           <span className="font-black text-xs text-white bg-gradient-to-r from-violet-600 to-indigo-600 px-2.5 py-1 rounded-lg shadow-xs">
                             {totalVal} pts
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-gray-400">
+                        <td className="px-6 py-4 text-gray-400 text-center">
                           {scoreItem.createdAt ? formatDateTime(scoreItem.createdAt) : 'Recent'}
                         </td>
                       </tr>
@@ -250,12 +250,12 @@ export default function ResultsHistoryPage() {
             <table className="w-full text-left text-xs">
               <thead className="bg-gray-50/80 dark:bg-[#141722] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider border-b border-gray-200/80 dark:border-gray-800">
                 <tr>
-                  <th className="px-6 py-3.5">Result Name</th>
-                  <th className="px-6 py-3.5">Type</th>
-                  <th className="px-6 py-3.5">Outcome Summary</th>
-                  <th className="px-6 py-3.5">Event</th>
-                  <th className="px-6 py-3.5">Recorded</th>
-                  <th className="px-6 py-3.5 text-right">Actions</th>
+                  <th className="px-6 py-3.5 text-left">Result Name</th>
+                  <th className="px-6 py-3.5 text-center">Type</th>
+                  <th className="px-6 py-3.5 text-center">Outcome Summary</th>
+                  <th className="px-6 py-3.5 text-center">Event</th>
+                  <th className="px-6 py-3.5 text-center">Recorded</th>
+                  <th className="px-6 py-3.5 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-gray-700 dark:text-gray-300">
@@ -266,10 +266,10 @@ export default function ResultsHistoryPage() {
 
                   return (
                     <tr key={r.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/40 transition-colors">
-                      <td className="px-6 py-4 font-bold text-gray-900 dark:text-white">
+                      <td className="px-6 py-4 font-bold text-gray-900 dark:text-white text-left">
                         {name}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 text-center">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                           type === 'wheel'
                             ? 'bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF]'
@@ -283,17 +283,17 @@ export default function ResultsHistoryPage() {
                           <span>{type}</span>
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-medium text-gray-800 dark:text-gray-200">
+                      <td className="px-6 py-4 font-medium text-gray-800 dark:text-gray-200 text-center">
                         {getOutcomeSummary(r)}
                       </td>
-                      <td className="px-6 py-4 font-semibold text-[#635BFF]">
+                      <td className="px-6 py-4 font-semibold text-[#635BFF] text-center">
                         {r.event_name || 'General'}
                       </td>
-                      <td className="px-6 py-4 text-gray-400">
+                      <td className="px-6 py-4 text-gray-400 text-center">
                         {recordedDate}
                       </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
+                      <td className="px-6 py-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => setInspectingResult({
                               ...r,

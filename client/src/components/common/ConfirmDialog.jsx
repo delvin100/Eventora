@@ -8,11 +8,18 @@ export default function ConfirmDialog({
   confirmText = 'Delete',
   cancelText = 'Cancel',
   isDanger = true,
+  confirmVariant,
   loading = false,
+  isLoading = false,
   onConfirm,
   onCancel,
+  onClose,
 }) {
   if (!isOpen) return null;
+
+  const handleClose = onCancel || onClose;
+  const isBusy = loading || isLoading;
+  const danger = confirmVariant ? confirmVariant === 'danger' : isDanger;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
@@ -21,20 +28,21 @@ export default function ConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          onClick={onCancel}
-          disabled={loading}
-          className="absolute right-4 top-4 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+          type="button"
+          onClick={handleClose}
+          disabled={isBusy}
+          className="absolute right-4 top-4 p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer disabled:opacity-50"
         >
           <X className="w-4 h-4" />
         </button>
 
         <div className="flex items-start gap-4">
           <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-            isDanger 
+            danger 
               ? 'bg-red-50 dark:bg-red-950/60 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900/50' 
               : 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-900/50'
           }`}>
-            {isDanger ? <Trash2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+            {danger ? <Trash2 className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
           </div>
 
           <div className="space-y-1.5 pt-0.5">
@@ -50,8 +58,8 @@ export default function ConfirmDialog({
         <div className="mt-6 flex items-center justify-end gap-3">
           <button
             type="button"
-            onClick={onCancel}
-            disabled={loading}
+            onClick={handleClose}
+            disabled={isBusy}
             className="px-4 py-2.5 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 transition-colors cursor-pointer disabled:opacity-50"
           >
             {cancelText}
@@ -59,14 +67,14 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={loading}
-            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white shadow-md transition-all cursor-pointer disabled:opacity-50 ${
-              isDanger
-                ? 'bg-red-600 hover:bg-red-700 shadow-red-600/25 hover:shadow-lg'
-                : 'bg-[#635BFF] hover:bg-[#5145E5] shadow-[#635BFF]/25 hover:shadow-lg'
+            disabled={isBusy}
+            className={`px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all cursor-pointer disabled:opacity-50 ${
+              danger
+                ? 'bg-red-600 hover:bg-red-700'
+                : 'bg-[#635BFF] hover:bg-[#5145E5]'
             }`}
           >
-            {loading ? 'Processing...' : confirmText}
+            {isBusy ? 'Processing...' : confirmText}
           </button>
         </div>
       </div>

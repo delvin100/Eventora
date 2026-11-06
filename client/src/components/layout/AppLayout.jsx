@@ -17,7 +17,8 @@ import {
   Sparkles,
   Zap,
   Crown,
-  Users
+  Users,
+  Globe
 } from 'lucide-react';
 import EventoraLogo from '../EventoraLogo';
 import { useAuth } from '../../context/AuthContext';
@@ -59,10 +60,12 @@ export default function AppLayout() {
   const navItems = [
     { name: 'Overview', to: '/app', icon: LayoutDashboard, exact: true },
     { name: 'My Events', to: '/app/events', icon: CalendarDays },
+    ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown }] : []),
+    { name: 'Quiz', to: '/app/quiz', icon: HelpCircle },
+    ...(isAdmin ? [{ name: 'All User Events', to: '/app/admin/events', icon: Globe, isAdminOnly: true }] : []),
     { name: 'All Lists', to: '/app/lists', icon: ListOrdered },
     { name: 'Recent Results', to: '/app/results', icon: History },
     { name: 'Templates', to: '/app/templates', icon: FileBox },
-    ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown, isSpecial: true }] : []),
     ...(isAdmin ? [{ name: 'Users', to: '/app/users', icon: Users }] : []),
     { name: 'Settings', to: '/app/settings', icon: Settings },
   ];
@@ -146,19 +149,14 @@ export default function AppLayout() {
             const Icon = item.icon;
             const isActive = getIsNavItemActive(item);
 
-            let activeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF] dark:text-[#8881FF] font-semibold';
-            let inactiveClass = 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-gray-100';
-
-            if (item.isSpecial) {
-              activeClass = 'bg-gradient-to-r from-violet-500/20 to-indigo-500/20 border border-violet-500/30 text-violet-700 dark:text-violet-300 font-bold';
-              inactiveClass = 'text-violet-700 dark:text-violet-300/90 hover:bg-violet-50/70 dark:hover:bg-violet-950/40 hover:text-violet-800 dark:hover:text-violet-200 font-medium';
-            }
+            const activeClass = 'bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF] dark:text-[#8881FF] font-semibold';
+            const inactiveClass = 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/60 hover:text-gray-900 dark:hover:text-gray-100 font-medium';
 
             return (
               <NavLink
                 key={item.name}
                 to={item.to}
-                state={item.isSpecial ? { fromSpecialEvents: true } : undefined}
+                state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
                   isActive ? activeClass : inactiveClass
                 }`}
@@ -167,16 +165,12 @@ export default function AppLayout() {
                 <Icon
                   className={`w-5 h-5 shrink-0 ${
                     isActive
-                      ? item.isSpecial
-                        ? 'text-amber-500 dark:text-amber-400'
-                        : 'text-[#635BFF] dark:text-[#8881FF]'
-                      : item.isSpecial
-                      ? 'text-amber-500/80 dark:text-amber-400/80'
+                      ? 'text-[#635BFF] dark:text-[#8881FF]'
                       : 'text-gray-400'
                   }`}
                 />
                 {!sidebarCollapsed && (
-                  <span>{item.name}</span>
+                  <span className="truncate">{item.name}</span>
                 )}
               </NavLink>
             );
@@ -252,25 +246,20 @@ export default function AppLayout() {
                 const Icon = item.icon;
                 const isActive = getIsNavItemActive(item);
 
-                let mobileClass = 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800';
-                if (isActive) {
-                  mobileClass = item.isSpecial
-                    ? 'text-violet-700 dark:text-violet-300 bg-violet-100/70 dark:bg-violet-950/60 font-bold border border-violet-500/30'
-                    : 'bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF] dark:text-[#8881FF] font-semibold';
-                } else if (item.isSpecial) {
-                  mobileClass = 'text-violet-700 dark:text-violet-300/90 hover:bg-violet-50/70 dark:hover:bg-violet-950/40 font-medium';
-                }
+                const mobileClass = isActive
+                  ? 'bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF] dark:text-[#8881FF] font-semibold'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 font-medium';
 
                 return (
                   <NavLink
                     key={item.name}
                     to={item.to}
-                    state={item.isSpecial ? { fromSpecialEvents: true } : undefined}
+                    state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
                     onClick={() => setMobileMenuOpen(false)}
                     className={`flex items-center justify-between px-4 py-3 rounded-xl text-base transition-all ${mobileClass}`}
                   >
                     <div className="flex items-center gap-3">
-                      <Icon className={`w-5 h-5 ${item.isSpecial ? 'text-amber-500' : isActive ? 'text-[#635BFF] dark:text-[#8881FF]' : 'text-gray-400'}`} />
+                      <Icon className={`w-5 h-5 ${isActive ? 'text-[#635BFF] dark:text-[#8881FF]' : 'text-gray-400'}`} />
                       <span>{item.name}</span>
                     </div>
                   </NavLink>

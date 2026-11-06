@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, Link } from 'react-router-dom';
 import {
   Users,
   Search,
@@ -239,12 +239,16 @@ export default function UsersManagementPage() {
 
                     {/* Events count */}
                     <td className="py-4 px-5">
-                      <div className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300 font-medium">
+                      <Link
+                        to={`/app/admin/events?user=${u.id}`}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 font-semibold text-xs border border-indigo-200/60 dark:border-indigo-800/60 transition-all cursor-pointer"
+                        title={`View ${u.displayName}'s events in All Events Explorer`}
+                      >
                         <FolderKanban className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                         <span>
                           {u.eventsCount || 0} Event{(u.eventsCount || 0) === 1 ? '' : 's'}
                         </span>
-                      </div>
+                      </Link>
                     </td>
 
                     {/* Joined Date */}

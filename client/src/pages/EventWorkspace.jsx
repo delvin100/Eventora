@@ -11,7 +11,8 @@ import {
   Settings,
   Crown,
   FileText,
-  Lock
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { eventService } from '../services/eventService';
 import { specialEventService } from '../services/specialEventService';
@@ -53,7 +54,8 @@ export default function EventWorkspace() {
           currentUser = session?.user ?? null;
         }
 
-        const data = await eventService.getEventById(eventId);
+        const targetLookup = location.state?.eventId || eventId;
+        const data = await eventService.getEventById(targetLookup);
         if (isCancelled) return;
 
         setEvent(data);
@@ -136,9 +138,11 @@ export default function EventWorkspace() {
     };
   }, [eventId, user?.id, user?.email, authLoading]);
 
+  const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+  const isOtherUserEvent = isAdmin && event?.owner_id && event.owner_id !== user?.id;
   const isSpecialEvent = event?.category === 'Special Event' || location.state?.fromSpecialEvents;
-  const backPath = isSpecialEvent ? '/app/special-events' : '/app/events';
-  const backLabel = isSpecialEvent ? 'Special Events' : 'All Events';
+  const backPath = isOtherUserEvent ? '/app/admin/events' : isSpecialEvent ? '/app/special-events' : '/app/events';
+  const backLabel = isOtherUserEvent ? 'All User Events' : isSpecialEvent ? 'Special Events' : 'My Events';
 
   const currentSlug = event?.name ? slugify(event.name) : eventId;
 
@@ -234,6 +238,37 @@ export default function EventWorkspace() {
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <span className="text-gray-900 dark:text-white font-bold">{event.name}</span>
       </nav>
+
+      {/* Admin Live Super-Access Banner */}
+      {isOtherUserEvent && (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-violet-950/40 via-purple-950/30 to-indigo-950/40 border border-violet-500/40 text-violet-200 shadow-sm backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-violet-600 text-white flex items-center justify-center font-bold text-sm shadow-md shadow-violet-600/30 shrink-0">
+              👑
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-violet-400">
+                  Admin Super-Access
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-semibold border border-violet-500/30">
+                  Live Interaction Mode
+                </span>
+              </div>
+              <p className="text-xs text-gray-300 mt-0.5">
+                Operating on event created by <strong className="text-white">{event.owner?.displayName || 'Organizer'}</strong> ({event.owner?.email || 'user@eventora.app'})
+              </p>
+            </div>
+          </div>
+          <Link
+            to="/app/admin/events"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/40 text-xs font-semibold text-violet-200 transition-all cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to All User Events</span>
+          </Link>
+        </div>
+      )}
 
       {/* Workspace Header Banner */}
       <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">

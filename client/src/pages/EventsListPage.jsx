@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, Search, CalendarDays, Star, ArrowRight, Trash2 } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Search, CalendarDays, Star, Trash2, Globe } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { eventService } from '../services/eventService';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 
 export default function EventsListPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -71,13 +76,25 @@ export default function EventsListPage() {
           </p>
         </div>
 
-        <Link
-          to="/app/events/new"
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 transition-all shrink-0 cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Event</span>
-        </Link>
+        <div className="flex items-center gap-2.5 shrink-0">
+          {isAdmin && (
+            <Link
+              to="/app/admin/events"
+              className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/50 text-xs font-bold transition-all shadow-xs cursor-pointer"
+            >
+              <Globe className="w-4 h-4 text-violet-600 dark:text-violet-400" />
+              <span>All User Events Explorer</span>
+            </Link>
+          )}
+
+          <Link
+            to="/app/events/new"
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 transition-all shrink-0 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Event</span>
+          </Link>
+        </div>
       </div>
 
       {/* Filters & Search */}
@@ -118,7 +135,8 @@ export default function EventsListPage() {
           {filtered.map(event => (
             <div
               key={event.id}
-              className="p-5 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-[#635BFF]/50 shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4"
+              onClick={() => navigate(`/app/events/${slugify(event.name)}`)}
+              className="p-5 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-[#635BFF]/70 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all flex flex-col justify-between gap-4 cursor-pointer"
             >
               <div>
                 <div className="flex items-center justify-between mb-2">
@@ -128,7 +146,10 @@ export default function EventsListPage() {
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => handleToggleFavorite(event.id, event.is_favorite)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleFavorite(event.id, event.is_favorite);
+                      }}
                       className="text-gray-400 hover:text-amber-500 cursor-pointer p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                       title={event.is_favorite ? 'Favorited' : 'Add to favorites'}
                     >
@@ -136,7 +157,10 @@ export default function EventsListPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setEventToDelete(event)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEventToDelete(event);
+                      }}
                       className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 cursor-pointer p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                       title="Delete event"
                     >
@@ -158,13 +182,6 @@ export default function EventsListPage() {
                 <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">
                   {event.participantCount || 0} Participants
                 </span>
-                <Link
-                  to={`/app/events/${slugify(event.name)}`}
-                  className="inline-flex items-center gap-1.5 text-xs font-bold text-[#635BFF] hover:underline"
-                >
-                  <span>Open Event</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
               </div>
             </div>
           ))}

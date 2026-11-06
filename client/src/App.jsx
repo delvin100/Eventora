@@ -17,6 +17,10 @@ import ResultsHistoryPage from './pages/ResultsHistoryPage';
 import TemplatesPage from './pages/TemplatesPage';
 import SpecialEventsPage from './pages/SpecialEventsPage';
 import UsersManagementPage from './pages/UsersManagementPage';
+import AdminAllEventsPage from './pages/AdminAllEventsPage';
+import QuizDashboardPage from './pages/QuizDashboardPage';
+import QuizWorkspacePage from './pages/QuizWorkspacePage';
+import QuizPlayPage from './pages/QuizPlayPage';
 import SettingsPage from './pages/SettingsPage';
 
 // Prathibha Sangamam Special Event Portal
@@ -60,6 +64,10 @@ export default function App() {
               <Route index element={<DashboardOverview />} />
               <Route path="events" element={<EventsListPage />} />
               <Route path="events/new" element={<NewEventPage />} />
+              <Route path="quiz" element={<QuizDashboardPage />} />
+              <Route path="quiz/:quizId" element={<QuizWorkspacePage />} />
+              <Route path="quiz/:quizId/play" element={<QuizPlayPage />} />
+              <Route path="quiz/:quizId/wheel" element={<QuizPlayPage />} />
               
               {/* Event Workspace with tabs */}
               <Route path="events/:eventId" element={<EventWorkspace />}>
@@ -76,6 +84,7 @@ export default function App() {
               <Route path="results" element={<ResultsHistoryPage />} />
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="special-events" element={<SpecialEventsPage />} />
+              <Route path="admin/events" element={<AdminAllEventsPage />} />
               <Route path="users" element={<UsersManagementPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

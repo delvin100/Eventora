@@ -1006,6 +1006,218 @@ router.get('/special-events/:idOrSlug', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/ps/admin/all-events
+ * Fetch all events from all users with creator info (Admin Only)
+ */
+router.get('/admin/all-events', async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.json({ success: true, events: [] });
+    }
+
+    const { email } = req.query;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const isAdmin = requesterEmail === 'admin@gmail.com';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    // 1. Fetch all events with participant ids
+    const { data: events, error: eventsErr } = await supabase
+      .from('events')
+      .select('*, participants(id)')
+      .order('created_at', { ascending: false });
+
+    if (eventsErr) throw eventsErr;
+
+    // 2. Fetch all profiles
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('*');
+
+    const profileMap = new Map();
+    (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+    // 3. Fetch auth users if available
+    const authUserMap = new Map();
+    try {
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      if (authData?.users) {
+        authData.users.forEach(u => authUserMap.set(u.id, u));
+      }
+    } catch (_) {}
+
+    // 4. Combine each event with owner info
+    const formattedEvents = (events || []).map(ev => {
+      const authUser = authUserMap.get(ev.owner_id);
+      const profile = profileMap.get(ev.owner_id);
+      const ownerEmail = authUser?.email || (profile?.display_name?.includes('@') ? profile.display_name : null) || 'user@eventora.app';
+      const displayName = profile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User';
+
+      return {
+        ...ev,
+        participantCount: ev.participants ? ev.participants.length : 0,
+        owner: {
+          id: ev.owner_id,
+          displayName,
+          email: ownerEmail,
+          usageType: profile?.usage_type || authUser?.user_metadata?.usage_type || 'personal'
+        }
+      };
+    });
+
+    return res.json({ success: true, events: formattedEvents });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/events/:idOrSlug
+ * Get any event by ID or slug with owner details (Admin & direct lookup)
+ */
+router.get('/events/:idOrSlug', async (req, res, next) => {
+  try {
+    const { idOrSlug } = req.params;
+    if (!supabase || !idOrSlug) return res.status(404).json({ success: false, message: 'Not found' });
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+
+    let eventData = null;
+    if (isUUID) {
+      const { data } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .eq('id', idOrSlug)
+        .maybeSingle();
+      eventData = data;
+    } else {
+      const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim();
+      const { data } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .ilike('name', `%${cleanName}%`)
+        .maybeSingle();
+      eventData = data;
+    }
+
+    if (!eventData) {
+      return res.status(404).json({ success: false, message: 'Event not found' });
+    }
+
+    // Fetch owner profile
+    let ownerProfile = null;
+    try {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', eventData.owner_id)
+        .maybeSingle();
+      ownerProfile = prof;
+    } catch (_) {}
+
+    let authUser = null;
+    try {
+      const { data: u } = await supabase.auth.admin.getUserById(eventData.owner_id);
+      authUser = u?.user;
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      event: {
+        ...eventData,
+        participantCount: eventData.participants ? eventData.participants.length : 0,
+        owner: {
+          id: eventData.owner_id,
+          displayName: ownerProfile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User',
+          email: authUser?.email || (ownerProfile?.display_name?.includes('@') ? ownerProfile.display_name : null) || 'user@eventora.app',
+          usageType: ownerProfile?.usage_type || authUser?.user_metadata?.usage_type || 'personal'
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/events/:eventId/results
+ * Get past results for an event
+ */
+router.get('/events/:eventId/results', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    if (!supabase || !eventId) return res.json({ success: true, results: [] });
+
+    const { data, error } = await supabase
+      .from('results')
+      .select('*, events(name)')
+      .eq('event_id', eventId)
+      .not('operation_type', 'like', 'special_event_%')
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    const results = (data || []).map(r => ({
+      ...r,
+      event_name: r.events?.name || 'General Event'
+    }));
+
+    return res.json({ success: true, results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/v1/ps/events/:eventId/results
+ * Save draw/shuffle/group result for an event
+ */
+router.post('/events/:eventId/results', async (req, res, next) => {
+  try {
+    const { eventId } = req.params;
+    const { result_name, operation_type, settings, result_snapshot, owner_id } = req.body;
+
+    if (!supabase || !eventId || !result_name || !operation_type || !result_snapshot) {
+      return res.status(400).json({ success: false, message: 'Missing required result fields.' });
+    }
+
+    let resolvedOwnerId = owner_id;
+    if (!resolvedOwnerId) {
+      const { data: ev } = await supabase.from('events').select('owner_id').eq('id', eventId).maybeSingle();
+      resolvedOwnerId = ev?.owner_id;
+    }
+
+    const { data, error } = await supabase
+      .from('results')
+      .insert([{
+        event_id: eventId,
+        owner_id: resolvedOwnerId,
+        result_name,
+        operation_type,
+        settings: settings || {},
+        result_snapshot
+      }])
+      .select()
+      .single();
+
+    if (error) throw error;
+    return res.status(201).json({ success: true, result: data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/ps/events/:eventId/participants
  * Get participants for a special event
  */
