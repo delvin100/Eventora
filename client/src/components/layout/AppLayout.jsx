@@ -100,7 +100,10 @@ export default function AppLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] flex">
+    <div
+      style={{ '--sidebar-width': sidebarCollapsed ? '5rem' : '16rem' }}
+      className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] flex"
+    >
       {/* =========================================================================
           DESKTOP SIDEBAR
          ========================================================================= */}

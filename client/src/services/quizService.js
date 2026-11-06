@@ -35,6 +35,7 @@ function formatQuizRecord(r) {
     isFinished,
     rounds,
     questionsCount: questions.length,
+    participantsCount: Array.isArray(participants) ? participants.length : 0,
     totalMarks,
     questions,
     participants,
@@ -106,17 +107,17 @@ export const QUIZ_TYPES = [
   },
   {
     id: 'one_question_two_chances',
-    name: 'One Question - 2 Chances',
+    name: 'One Question - Two Chances',
     description: 'Multiple choice questions with 2 attempts per question.',
     mode: 'mcq_2',
-    isAvailable: false
+    isAvailable: true
   },
   {
     id: 'answer_to_question',
     name: 'Answer to Question',
     description: 'Direct question and answer without options.',
     mode: 'direct',
-    isAvailable: false
+    isAvailable: true
   }
 ];
 
@@ -288,6 +289,7 @@ export const quizService = {
             isFinished: false,
             rounds: initialRounds,
             questionsCount: 0,
+            participantsCount: 0,
             totalMarks: 0,
             questions: [],
             participants: [],
@@ -317,6 +319,7 @@ export const quizService = {
       isFinished: false,
       rounds: initialRounds,
       questionsCount: 0,
+      participantsCount: 0,
       totalMarks: 0,
       questions: [],
       participants: [],
@@ -445,6 +448,7 @@ export const quizService = {
           questions: cleanQuestions,
           participants: cleanParticipants,
           questionsCount: cleanQuestions.length,
+          participantsCount: cleanParticipants.length,
           totalMarks,
           updated_at: new Date().toISOString()
         };

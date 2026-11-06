@@ -28,7 +28,9 @@ import {
   ChevronRight,
   ChevronDown,
   Trophy,
-  Lock
+  Lock,
+  Eye,
+  XCircle
 } from 'lucide-react';
 
 import WheelCanvas from '../components/wheel/WheelCanvas';
@@ -241,9 +243,23 @@ function QuizPlayPageContent() {
   const [timeLeft, setTimeLeft] = useState(null);
   const [turnHistory, setTurnHistory] = useState([]);
 
+  // One Question - 2 Chances state
+  const [attemptNumber, setAttemptNumber] = useState(1);
+  const [firstAttemptWrongIdx, setFirstAttemptWrongIdx] = useState(null);
+  const [secondAttemptIdx, setSecondAttemptIdx] = useState(null);
+
+  // Answer to Question (Direct Q&A) state
+  const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+  const [directResult, setDirectResult] = useState(null); // 'correct' | 'wrong' | null
+
   // Round Information
   const currentRound = (location.state?.round ? Number(location.state.round) : null) || quiz?.currentRound || 1;
-  const activeRoundObj = (Array.isArray(quiz?.rounds) ? quiz.rounds.find(r => r.roundNumber === currentRound) : null) || { questions: quiz?.questions || [] };
+  const activeRoundObj = (Array.isArray(quiz?.rounds) ? quiz.rounds.find(r => r.roundNumber === currentRound) : null) || { questions: quiz?.questions || [], quizType: quiz?.quizType };
+  const currentRoundType = activeRoundObj?.quizType || quiz?.quizType || 'one_question_one_chance';
+  const typeDef = QUIZ_TYPES.find(t => t.id === currentRoundType) || QUIZ_TYPES[0];
+
+  const isTwoChances = currentRoundType === 'one_question_two_chances';
+  const isDirect = currentRoundType === 'answer_to_question';
 
   // Questions and pool
   const questionsList = Array.isArray(activeRoundObj?.questions) ? activeRoundObj.questions : (Array.isArray(quiz?.questions) ? quiz.questions : []);
@@ -550,6 +566,11 @@ function QuizPlayPageContent() {
     setHasAnswered(false);
     setIsTimedOut(false);
     setTimeLeft(null);
+    setAttemptNumber(1);
+    setFirstAttemptWrongIdx(null);
+    setSecondAttemptIdx(null);
+    setIsAnswerRevealed(false);
+    setDirectResult(null);
 
     // Pick a random unasked question from remaining questions!
     const available = questionsList.filter(q => !usedQuestionIds.has(q.id));
@@ -580,11 +601,67 @@ function QuizPlayPageContent() {
     setIsQuestionModalOpen(true);
   };
 
+  // Helper to persist turn and question completion
+  const recordCompletedTurn = useCallback((currentQ, isCorrect, marksEarned, selectedText) => {
+    const updatedAll = allParticipants.map(p => {
+      if (p.id === currentWinner?.id) {
+        return {
+          ...p,
+          score: (Number(p.score) || 0) + marksEarned,
+          turns: (Number(p.turns) || 0) + 1,
+          correct: (Number(p.correct) || 0) + (isCorrect ? 1 : 0)
+        };
+      }
+      return p;
+    });
+
+    persistParticipants(updatedAll);
+
+    let nextUsed = usedQuestionIds;
+    if (currentQ?.id) {
+      nextUsed = new Set([...usedQuestionIds, currentQ.id]);
+      setUsedQuestionIds(nextUsed);
+    }
+
+    let nextRemoved = removedIds;
+    if (currentWinner?.id) {
+      nextRemoved = new Set([...removedIds, currentWinner.id]);
+      setRemovedIds(nextRemoved);
+    }
+
+    saveQuizSession(quiz?.id, currentRound, nextUsed, nextRemoved);
+
+    setTurnHistory(prev => [
+      {
+        id: 'turn_' + Date.now(),
+        questionId: currentQ?.id,
+        participantId: currentWinner?.id,
+        participantName: currentWinner?.name || 'Participant',
+        questionNumber: usedQuestionIds.size + 1,
+        questionText: currentQ?.text || `Question ${usedQuestionIds.size + 1}`,
+        selectedOptionText: selectedText,
+        isCorrect,
+        marksEarned,
+        maxMarks: Number(currentQ?.marks) || 1,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      },
+      ...prev
+    ]);
+  }, [allParticipants, currentWinner?.id, currentWinner?.name, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound]);
+
   // Handle question timeout when optional timeLimit runs out
   const handleTimeout = useCallback(() => {
     setHasAnswered(true);
     setIsTimedOut(true);
     setSelectedOptionIdx(null);
+
+    if (isDirect) {
+      setIsAnswerRevealed(true);
+      setDirectResult('wrong');
+    }
+    if (isTwoChances) {
+      setAttemptNumber(2);
+    }
 
     const currentQ = activeQuestion || questionsList[currentQuestionIdx];
 
@@ -634,7 +711,7 @@ function QuizPlayPageContent() {
       },
       ...prev
     ]);
-  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds.size]);
+  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound, isDirect, isTwoChances]);
 
   // Active question countdown timer effect
   useEffect(() => {
@@ -645,7 +722,9 @@ function QuizPlayPageContent() {
       return;
     }
 
-    setTimeLeft(limit);
+    if (timeLeft === null) {
+      setTimeLeft(limit);
+    }
 
     const timer = setInterval(() => {
       setTimeLeft(prev => {
@@ -660,76 +739,108 @@ function QuizPlayPageContent() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isQuestionModalOpen, activeQuestion, hasAnswered, handleTimeout]);
+  }, [isQuestionModalOpen, activeQuestion, hasAnswered, timeLeft, handleTimeout]);
 
-  // Check Answer for Question (One Question - One Chance)
+  // Check Answer for Question (One Question - One Chance & Two Chances)
   const handleSelectOption = (optIdx) => {
-    if (hasAnswered) return; // One chance only!
-
-    setSelectedOptionIdx(optIdx);
-    setHasAnswered(true);
-
+    if (hasAnswered) return;
     const currentQ = activeQuestion || questionsList[currentQuestionIdx];
-    const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
+    if (!currentQ) return;
+
+    const optText = currentQ?.options?.[optIdx]?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`;
+
+    if (isTwoChances) {
+      if (attemptNumber === 1) {
+        const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
+        if (isCorrect) {
+          // Participant answered correctly on 1st try!
+          setSelectedOptionIdx(optIdx);
+          setHasAnswered(true);
+          const marksEarned = Number(currentQ?.marks) || 1;
+
+          if (celebrationEnabled) {
+            confetti({ particleCount: 90, spread: 80, origin: { y: 0.65 } });
+          }
+          if (soundEnabled) {
+            playVictorySound();
+          }
+
+          recordCompletedTurn(currentQ, true, marksEarned, `${optText} (1st Try)`);
+        } else {
+          // Participant answered wrong on 1st try:
+          // Just show that it was wrong, give 2nd chance, DO NOT REVEAL correct answer!
+          setFirstAttemptWrongIdx(optIdx);
+          setSelectedOptionIdx(optIdx);
+          setAttemptNumber(2);
+          if (Number(currentQ?.timeLimit) > 0) {
+            setTimeLeft(Number(currentQ.timeLimit));
+          }
+        }
+      } else if (attemptNumber === 2) {
+        if (optIdx === firstAttemptWrongIdx) return;
+
+        setSecondAttemptIdx(optIdx);
+        setSelectedOptionIdx(optIdx);
+        setHasAnswered(true);
+
+        const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
+        const secondMarks = currentQ?.secondTryMarks !== undefined && !isNaN(Number(currentQ?.secondTryMarks))
+          ? Number(currentQ.secondTryMarks)
+          : Math.max(1, Math.round((Number(currentQ?.marks) || 1) / 2));
+        const marksEarned = isCorrect ? secondMarks : 0;
+
+        if (isCorrect) {
+          if (celebrationEnabled) {
+            confetti({ particleCount: 90, spread: 80, origin: { y: 0.65 } });
+          }
+          if (soundEnabled) {
+            playVictorySound();
+          }
+        }
+
+        recordCompletedTurn(currentQ, isCorrect, marksEarned, `${optText} (2nd Try)`);
+      }
+    } else {
+      // Standard One Question - One Chance
+      setSelectedOptionIdx(optIdx);
+      setHasAnswered(true);
+
+      const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
+      const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : 0;
+
+      if (isCorrect) {
+        if (celebrationEnabled) {
+          confetti({ particleCount: 90, spread: 80, origin: { y: 0.65 } });
+        }
+        if (soundEnabled) {
+          playVictorySound();
+        }
+      }
+
+      recordCompletedTurn(currentQ, isCorrect, marksEarned, optText);
+    }
+  };
+
+  // Mark Direct Question Result (Answer to Question mode)
+  const handleMarkDirectResult = (isCorrect) => {
+    if (hasAnswered) return;
+    const currentQ = activeQuestion || questionsList[currentQuestionIdx];
+    if (!currentQ) return;
+
+    setHasAnswered(true);
+    setDirectResult(isCorrect ? 'correct' : 'wrong');
     const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : 0;
 
     if (isCorrect) {
-      confetti({
-        particleCount: 90,
-        spread: 80,
-        origin: { y: 0.65 }
-      });
-      playVictorySound();
-    }
-
-    // Award points to this student if correct, else 0 points
-    const updatedAll = allParticipants.map(p => {
-      if (p.id === currentWinner?.id) {
-        return {
-          ...p,
-          score: (Number(p.score) || 0) + marksEarned,
-          turns: (Number(p.turns) || 0) + 1,
-          correct: (Number(p.correct) || 0) + (isCorrect ? 1 : 0)
-        };
+      if (celebrationEnabled) {
+        confetti({ particleCount: 90, spread: 80, origin: { y: 0.65 } });
       }
-      return p;
-    });
-
-    persistParticipants(updatedAll);
-
-    // 1. Remove that question so it is never selected again in this session
-    let nextUsed = usedQuestionIds;
-    if (currentQ?.id) {
-      nextUsed = new Set([...usedQuestionIds, currentQ.id]);
-      setUsedQuestionIds(nextUsed);
+      if (soundEnabled) {
+        playVictorySound();
+      }
     }
 
-    // 2. Remove the student who attended the question from upcoming spins in the wheel
-    let nextRemoved = removedIds;
-    if (currentWinner?.id) {
-      nextRemoved = new Set([...removedIds, currentWinner.id]);
-      setRemovedIds(nextRemoved);
-    }
-
-    saveQuizSession(quiz?.id, currentRound, nextUsed, nextRemoved);
-
-    // Record in history
-    setTurnHistory(prev => [
-      {
-        id: 'turn_' + Date.now(),
-        questionId: currentQ?.id,
-        participantId: currentWinner?.id,
-        participantName: currentWinner?.name || 'Participant',
-        questionNumber: usedQuestionIds.size + 1,
-        questionText: currentQ?.text || `Question ${usedQuestionIds.size + 1}`,
-        selectedOptionText: currentQ?.options?.[optIdx]?.text || '',
-        isCorrect,
-        marksEarned,
-        maxMarks: Number(currentQ?.marks) || 1,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      },
-      ...prev
-    ]);
+    recordCompletedTurn(currentQ, isCorrect, marksEarned, isCorrect ? 'Marked Correct' : 'Marked Wrong');
   };
 
   const handleNextQuestion = () => {
@@ -766,7 +877,6 @@ function QuizPlayPageContent() {
 
   const currentQ = activeQuestion || questionsList[currentQuestionIdx] || null;
   const quizSlug = slugify(quiz.name) || quiz.id;
-  const typeDef = QUIZ_TYPES.find(t => t.id === quiz.quizType) || QUIZ_TYPES[0];
 
   return (
     <div className="space-y-6 pb-12">
@@ -1350,6 +1460,18 @@ function QuizPlayPageContent() {
               </div>
 
               <div className="flex items-center gap-2">
+                {isTwoChances && activeQuestion && (
+                  <span className={`px-2.5 py-1 rounded-xl font-black text-xs ${
+                    hasAnswered
+                      ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                      : attemptNumber === 1
+                      ? 'bg-violet-100 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300'
+                      : 'bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300 animate-pulse'
+                  }`}>
+                    {hasAnswered ? 'Completed' : attemptNumber === 1 ? '1st Chance' : '2nd Chance'}
+                  </span>
+                )}
+
                 {activeQuestion && Number(activeQuestion.timeLimit) > 0 && (
                   <span
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black transition-all ${
@@ -1371,11 +1493,15 @@ function QuizPlayPageContent() {
                     </span>
                   </span>
                 )}
+
                 {activeQuestion && (
                   <span className="px-2.5 py-1 rounded-xl bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 font-extrabold text-xs">
-                    {activeQuestion.marks || 1} pts
+                    {isTwoChances
+                      ? `${(attemptNumber === 2 ? (activeQuestion.secondTryMarks !== undefined ? activeQuestion.secondTryMarks : 1) : (activeQuestion.marks || 1))} pts`
+                      : `${activeQuestion.marks || 1} pts`}
                   </span>
                 )}
+
                 <button
                   type="button"
                   onClick={() => setIsQuestionModalOpen(false)}
@@ -1415,94 +1541,310 @@ function QuizPlayPageContent() {
                   )}
                 </div>
 
-                {/* Category 1: One Question - One Chance MCQ Options */}
-                <div className="space-y-2.5">
-                  {(activeQuestion.options || []).map((opt, optIdx) => {
-                    const isSelected = selectedOptionIdx === optIdx;
-                    const isCorrect = typeof opt === 'object' && opt ? Boolean(opt.isCorrect) : false;
-                    const optText = typeof opt === 'string' ? opt : (opt?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`);
-                    const optKey = (typeof opt === 'object' && opt?.id) ? opt.id : `q_opt_${optIdx}`;
-
-                    let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
-
-                    if (hasAnswered) {
-                      if (isTimedOut) {
-                        if (isCorrect) {
-                          cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
-                        } else {
-                          cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
-                        }
-                      } else if (isSelected && isCorrect) {
-                        cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
-                      } else if (isSelected && !isCorrect) {
-                        cardStyle = 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 font-bold';
-                      } else if (isCorrect) {
-                        cardStyle = 'border-emerald-500/60 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200';
-                      } else {
-                        cardStyle = 'opacity-50 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
-                      }
-                    }
-
-                    return (
-                      <button
-                        key={optKey}
-                        type="button"
-                        disabled={hasAnswered}
-                        onClick={() => handleSelectOption(optIdx)}
-                        className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${cardStyle}`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
-                            {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
-                          </span>
-                          <span className="text-xs font-semibold truncate">
-                            {optText}
-                          </span>
+                {/* Mode 1: Answer to Question (Direct Q&A without options) */}
+                {isDirect ? (
+                  <div className="space-y-4 pt-2">
+                    {!isAnswerRevealed ? (
+                      <div className="py-6 flex flex-col items-center justify-center gap-3 bg-gray-50/70 dark:bg-[#12141F] rounded-2xl border border-dashed border-violet-300 dark:border-violet-900/60 p-6 text-center">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm">
+                          Direct question without options. Participant gives their answer verbally or in person. Click below to reveal the official answer.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAnswerRevealed(true);
+                            setTimeLeft(null);
+                          }}
+                          className="py-3 px-6 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white font-bold text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-violet-500/25 transition-all cursor-pointer hover:scale-[1.02]"
+                        >
+                          <Eye className="w-4 h-4" />
+                          <span>Show Answer</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                        {/* Revealed Answer Box */}
+                        <div className="p-5 rounded-2xl bg-violet-50/80 dark:bg-violet-950/30 border border-violet-200 dark:border-violet-800/60 space-y-1.5 shadow-xs">
+                          <div className="flex items-center gap-2 text-violet-700 dark:text-violet-300 text-xs font-bold uppercase tracking-wider">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Revealed Answer</span>
+                          </div>
+                          <p className="text-base sm:text-lg font-black text-gray-900 dark:text-white leading-relaxed">
+                            {activeQuestion.answer || '(No answer text provided)'}
+                          </p>
                         </div>
 
-                        {hasAnswered && isCorrect && (
-                          <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
-                            <Check className="w-4 h-4" />
-                            <span>Correct</span>
-                          </span>
-                        )}
+                        {/* Correct / Wrong Decision Buttons */}
+                        <div className="space-y-2">
+                          <div className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Mark Participant Answer:
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <button
+                              type="button"
+                              disabled={hasAnswered}
+                              onClick={() => handleMarkDirectResult(true)}
+                              className={`py-3.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                hasAnswered
+                                  ? directResult === 'correct'
+                                    ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-500'
+                                    : 'opacity-30 bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-600/25 hover:scale-[1.02]'
+                              }`}
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                              <span>Correct (+{activeQuestion.marks || 1} pts)</span>
+                            </button>
 
-                        {hasAnswered && !isTimedOut && isSelected && !isCorrect && (
-                          <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs shrink-0">
-                            <X className="w-4 h-4" />
-                            <span>Wrong</span>
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
+                            <button
+                              type="button"
+                              disabled={hasAnswered}
+                              onClick={() => handleMarkDirectResult(false)}
+                              className={`py-3.5 px-4 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                                hasAnswered
+                                  ? directResult === 'wrong'
+                                    ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-500'
+                                    : 'opacity-30 bg-gray-100 dark:bg-gray-800 text-gray-400 cursor-not-allowed'
+                                  : 'bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/25 hover:scale-[1.02]'
+                              }`}
+                            >
+                              <XCircle className="w-4 h-4" />
+                              <span>Wrong (0 pts)</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : isTwoChances ? (
+                  /* Mode 2: One Question - 2 Chances MCQ Options */
+                  <div className="space-y-3 pt-1">
+                    {/* 2 Chances Notice Banner if attempt 1 was wrong and waiting for attempt 2 */}
+                    {attemptNumber === 2 && !hasAnswered && (
+                      <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>1st try was incorrect! Second chance: Choose another option for {activeQuestion.secondTryMarks !== undefined ? activeQuestion.secondTryMarks : 1} pts.</span>
+                      </div>
+                    )}
+
+                    <div className="space-y-2.5">
+                      {(activeQuestion.options || []).map((opt, optIdx) => {
+                        const isCorrect = typeof opt === 'object' && opt ? Boolean(opt.isCorrect) : false;
+                        const optText = typeof opt === 'string' ? opt : (opt?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`);
+                        const optKey = (typeof opt === 'object' && opt?.id) ? opt.id : `q_opt_${optIdx}`;
+
+                        const isFirstWrong = optIdx === firstAttemptWrongIdx;
+                        const isSecondAttempt = optIdx === secondAttemptIdx;
+
+                        let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
+                        let isDisabled = hasAnswered;
+                        let badge = null;
+
+                        if (!hasAnswered) {
+                          if (attemptNumber === 2 && isFirstWrong) {
+                            cardStyle = 'border-rose-300 dark:border-rose-900/60 bg-rose-50/40 dark:bg-rose-950/20 text-rose-700 dark:text-rose-300 opacity-60 cursor-not-allowed';
+                            isDisabled = true;
+                            badge = (
+                              <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs shrink-0">
+                                <X className="w-3.5 h-3.5" />
+                                <span>Wrong (1st Try)</span>
+                              </span>
+                            );
+                          }
+                        } else {
+                          // Question finished
+                          if (isTimedOut) {
+                            if (isCorrect) {
+                              cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
+                              badge = (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
+                                  <Check className="w-4 h-4" />
+                                  <span>Correct Answer</span>
+                                </span>
+                              );
+                            } else {
+                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                            }
+                          } else if (attemptNumber === 1 && selectedOptionIdx === optIdx && isCorrect) {
+                            cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
+                            badge = (
+                              <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
+                                <Check className="w-4 h-4" />
+                                <span>Correct (1st Try)</span>
+                              </span>
+                            );
+                          } else if (attemptNumber === 2) {
+                            if (isFirstWrong) {
+                              cardStyle = 'border-rose-400 dark:border-rose-900 bg-rose-50/50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200';
+                              badge = (
+                                <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs shrink-0">
+                                  <X className="w-4 h-4" />
+                                  <span>Wrong (1st Try)</span>
+                                </span>
+                              );
+                            } else if (isSecondAttempt && isCorrect) {
+                              cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
+                              badge = (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
+                                  <Check className="w-4 h-4" />
+                                  <span>Correct (2nd Try)</span>
+                                </span>
+                              );
+                            } else if (isSecondAttempt && !isCorrect) {
+                              cardStyle = 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 font-bold';
+                              badge = (
+                                <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs shrink-0">
+                                  <X className="w-4 h-4" />
+                                  <span>Wrong (2nd Try)</span>
+                                </span>
+                              );
+                            } else if (isCorrect) {
+                              // Only revealed after 2nd chance failure!
+                              cardStyle = 'border-emerald-500/80 bg-emerald-50/50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-100 font-bold';
+                              badge = (
+                                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
+                                  <Check className="w-4 h-4" />
+                                  <span>Correct Answer</span>
+                                </span>
+                              );
+                            } else {
+                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                            }
+                          } else {
+                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                          }
+                        }
+
+                        return (
+                          <button
+                            key={optKey}
+                            type="button"
+                            disabled={isDisabled}
+                            onClick={() => handleSelectOption(optIdx)}
+                            className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${cardStyle}`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
+                                {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
+                              </span>
+                              <span className="text-xs font-semibold truncate">
+                                {optText}
+                              </span>
+                            </div>
+                            {badge}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* Mode 3: One Question - One Chance MCQ Options */
+                  <div className="space-y-2.5">
+                    {(activeQuestion.options || []).map((opt, optIdx) => {
+                      const isSelected = selectedOptionIdx === optIdx;
+                      const isCorrect = typeof opt === 'object' && opt ? Boolean(opt.isCorrect) : false;
+                      const optText = typeof opt === 'string' ? opt : (opt?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`);
+                      const optKey = (typeof opt === 'object' && opt?.id) ? opt.id : `q_opt_${optIdx}`;
+
+                      let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
+
+                      if (hasAnswered) {
+                        if (isTimedOut) {
+                          if (isCorrect) {
+                            cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
+                          } else {
+                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                          }
+                        } else if (isSelected && isCorrect) {
+                          cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
+                        } else if (isSelected && !isCorrect) {
+                          cardStyle = 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 font-bold';
+                        } else if (isCorrect) {
+                          cardStyle = 'border-emerald-500/60 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200';
+                        } else {
+                          cardStyle = 'opacity-50 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                        }
+                      }
+
+                      return (
+                        <button
+                          key={optKey}
+                          type="button"
+                          disabled={hasAnswered}
+                          onClick={() => handleSelectOption(optIdx)}
+                          className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${cardStyle}`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
+                              {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
+                            </span>
+                            <span className="text-xs font-semibold truncate">
+                              {optText}
+                            </span>
+                          </div>
+
+                          {hasAnswered && isCorrect && (
+                            <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs shrink-0">
+                              <Check className="w-4 h-4" />
+                              <span>Correct</span>
+                            </span>
+                          )}
+
+                          {hasAnswered && !isTimedOut && isSelected && !isCorrect && (
+                            <span className="flex items-center gap-1 text-rose-600 dark:text-rose-400 font-bold text-xs shrink-0">
+                              <X className="w-4 h-4" />
+                              <span>Wrong</span>
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Outcome Banner if answered */}
                 {hasAnswered && (
                   <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between ${
                     isTimedOut
                       ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                      : isDirect
+                      ? directResult === 'correct'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
+                        : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
+                      : isTwoChances
+                      ? (attemptNumber === 1 && activeQuestion?.options?.[selectedOptionIdx]?.isCorrect) || (attemptNumber === 2 && activeQuestion?.options?.[secondAttemptIdx]?.isCorrect)
+                        ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
+                        : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
                       : activeQuestion?.options?.[selectedOptionIdx]?.isCorrect
                       ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
                       : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
                   }`}>
                     <span>
-                      {isTimedOut
-                        ? `⏱️ Time's up! No answer selected (0 pts)`
-                        : activeQuestion?.options?.[selectedOptionIdx]?.isCorrect
-                        ? `🎉 Correct answer! +${activeQuestion.marks || 1} pts`
-                        : `❌ Incorrect answer!`}
+                      {(() => {
+                        if (isTimedOut) return "⏱️ Time's up! No answer selected (0 pts)";
+                        if (isDirect) {
+                          return directResult === 'correct'
+                            ? `🎉 Marked as Correct! +${activeQuestion.marks || 1} pts`
+                            : `❌ Marked as Wrong (0 pts)`;
+                        }
+                        if (isTwoChances) {
+                          if (attemptNumber === 1 && activeQuestion?.options?.[selectedOptionIdx]?.isCorrect) {
+                            return `🎉 Correct on 1st try! +${activeQuestion.marks || 1} pts`;
+                          }
+                          if (attemptNumber === 2 && activeQuestion?.options?.[secondAttemptIdx]?.isCorrect) {
+                            const secondMarks = activeQuestion.secondTryMarks !== undefined ? activeQuestion.secondTryMarks : 1;
+                            return `🎉 Correct on 2nd try! +${secondMarks} pts`;
+                          }
+                          return `❌ Incorrect after 2 chances! (0 pts)`;
+                        }
+                        return activeQuestion?.options?.[selectedOptionIdx]?.isCorrect
+                          ? `🎉 Correct answer! +${activeQuestion.marks || 1} pts`
+                          : `❌ Incorrect answer!`;
+                      })()}
                     </span>
-                    {isTimedOut ? (
-                      <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg bg-rose-100 dark:bg-rose-900/60 text-rose-800 dark:text-rose-200">
-                        0 pts
-                      </span>
-                    ) : activeQuestion?.options?.[selectedOptionIdx]?.isCorrect && (
-                      <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200">
-                        Total: {((allParticipants.find(p => p.id === currentWinner?.id)?.score || 0))} pts
-                      </span>
-                    )}
+                    <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-lg bg-white/70 dark:bg-[#12141F]/80 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-800">
+                      Total: {((allParticipants.find(p => p.id === currentWinner?.id)?.score || 0))} pts
+                    </span>
                   </div>
                 )}
               </>

@@ -102,6 +102,7 @@ export default function QuizWorkspacePage() {
   const [quizName, setQuizName] = useState('');
   const [quizDescription, setQuizDescription] = useState('');
   const [defaultMarks, setDefaultMarks] = useState(1);
+  const [defaultSecondTryMarks, setDefaultSecondTryMarks] = useState(1);
   const [defaultTimeValue, setDefaultTimeValue] = useState('');
   const [defaultTimeUnit, setDefaultTimeUnit] = useState('sec');
   const [questions, setQuestions] = useState([]);
@@ -135,6 +136,9 @@ export default function QuizWorkspacePage() {
         setQuizName(data.name || 'Untitled Quiz');
         setQuizDescription(data.description || '');
         setDefaultMarks(data.defaultMarks || 1);
+        if (data.defaultSecondTryMarks !== undefined && data.defaultSecondTryMarks !== null) {
+          setDefaultSecondTryMarks(data.defaultSecondTryMarks);
+        }
         if (data.defaultTimeValue !== undefined && data.defaultTimeValue !== null) {
           setDefaultTimeValue(data.defaultTimeValue);
         }
@@ -167,7 +171,7 @@ export default function QuizWorkspacePage() {
 
         const hasConfirmedType = Boolean(
           activeRound.isTypeConfirmed ||
-          (activeRound.quizType && activeRound.questions && activeRound.questions.length > 0 && activeRound.questions.some(q => q.text?.trim() || q.options?.some(o => o.text?.trim())))
+          (activeRound.quizType && activeRound.questions && activeRound.questions.length > 0 && activeRound.questions.some(q => q.text?.trim() || q.answer?.trim() || q.options?.some(o => o.text?.trim())))
         );
 
         setIsTypeConfirmed(hasConfirmedType);
@@ -180,11 +184,13 @@ export default function QuizWorkspacePage() {
               {
                 id: 'q_' + Date.now(),
                 text: '',
+                answer: activeRound.quizType === 'answer_to_question' ? '' : undefined,
                 marks: data.defaultMarks || 1,
+                secondTryMarks: activeRound.quizType === 'one_question_two_chances' ? (data.defaultSecondTryMarks || 1) : undefined,
                 timeLimit: null,
                 timeValue: '',
                 timeUnit: 'sec',
-                options: [
+                options: activeRound.quizType === 'answer_to_question' ? [] : [
                   { id: 'opt_1', text: '', isCorrect: true },
                   { id: 'opt_2', text: '', isCorrect: false },
                   { id: 'opt_3', text: '', isCorrect: false },
@@ -206,6 +212,8 @@ export default function QuizWorkspacePage() {
           }
           return {
             ...q,
+            answer: q.answer !== undefined ? q.answer : '',
+            secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (data.defaultSecondTryMarks || 1),
             timeValue: val,
             timeUnit: unit,
             timeLimit: q.timeLimit ? Number(q.timeLimit) : (val !== '' && !isNaN(Number(val)) && Number(val) > 0 ? (unit === 'min' ? Math.round(Number(val) * 60) : Math.round(Number(val))) : null)
@@ -250,16 +258,34 @@ export default function QuizWorkspacePage() {
     }
 
     const targetQuizId = quiz?.id || location.state?.quizId || quizId;
+    const isDirect = selectedRoundType === 'answer_to_question';
+    const isTwoChances = selectedRoundType === 'one_question_two_chances';
 
-    const defaultQ = questions.length > 0 ? questions : [
+    const defaultQ = questions.length > 0 ? questions.map(q => ({
+      ...q,
+      answer: q.answer !== undefined ? q.answer : '',
+      secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondTryMarks) || 1),
+      options: isDirect
+        ? []
+        : (q.options && q.options.length > 0
+          ? q.options
+          : [
+              { id: 'opt_1', text: '', isCorrect: true },
+              { id: 'opt_2', text: '', isCorrect: false },
+              { id: 'opt_3', text: '', isCorrect: false },
+              { id: 'opt_4', text: '', isCorrect: false }
+            ])
+    })) : [
       {
         id: 'q_' + Date.now(),
         text: '',
+        answer: isDirect ? '' : undefined,
         marks: Number(defaultMarks) || 1,
+        secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
         timeLimit: null,
         timeValue: '',
         timeUnit: 'sec',
-        options: [
+        options: isDirect ? [] : [
           { id: 'opt_1', text: '', isCorrect: true },
           { id: 'opt_2', text: '', isCorrect: false },
           { id: 'opt_3', text: '', isCorrect: false },
@@ -331,6 +357,22 @@ export default function QuizWorkspacePage() {
     if (!quiz?.id) return;
     try {
       setSaving(true);
+      const cleanDefaultMarks = Math.max(1, parseInt(defaultMarks, 10) || 1);
+      const cleanDefaultSecondMarks = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+      setDefaultMarks(cleanDefaultMarks);
+      if (selectedRoundType === 'one_question_two_chances') {
+        setDefaultSecondTryMarks(cleanDefaultSecondMarks);
+      }
+
+      const sanitizedQuestions = questions.map(q => ({
+        ...q,
+        marks: Math.max(1, parseInt(q.marks, 10) || 1),
+        ...(selectedRoundType === 'one_question_two_chances'
+          ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
+          : {})
+      }));
+      setQuestions(sanitizedQuestions);
+
       const existingRounds = Array.isArray(quiz.rounds) ? [...quiz.rounds] : [];
       let updatedRounds = existingRounds.map(r => {
         if (r.roundNumber === currentRound) {
@@ -338,7 +380,7 @@ export default function QuizWorkspacePage() {
             ...r,
             quizType: selectedRoundType,
             isTypeConfirmed: true,
-            questions
+            questions: sanitizedQuestions
           };
         }
         return r;
@@ -349,7 +391,7 @@ export default function QuizWorkspacePage() {
           roundNumber: currentRound,
           quizType: selectedRoundType,
           isTypeConfirmed: true,
-          questions,
+          questions: sanitizedQuestions,
           isCompleted: false
         });
       }
@@ -358,12 +400,13 @@ export default function QuizWorkspacePage() {
         name: quizName,
         description: quizDescription,
         quizType: selectedRoundType,
-        defaultMarks: Number(defaultMarks) || 1,
+        defaultMarks: cleanDefaultMarks,
+        defaultSecondTryMarks: cleanDefaultSecondMarks,
         defaultTimeValue,
         defaultTimeUnit,
         currentRound,
         rounds: updatedRounds,
-        questions
+        questions: sanitizedQuestions
       });
 
       setSaveSuccess(true);
@@ -394,6 +437,16 @@ export default function QuizWorkspacePage() {
 
     try {
       setSaving(true);
+      const cleanDefaultMarks = Math.max(1, parseInt(defaultMarks, 10) || 1);
+      const cleanDefaultSecondMarks = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+      const sanitizedQuestions = questions.map(q => ({
+        ...q,
+        marks: Math.max(1, parseInt(q.marks, 10) || 1),
+        ...(selectedRoundType === 'one_question_two_chances'
+          ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
+          : {})
+      }));
+
       const existingRounds = Array.isArray(quiz?.rounds) ? [...quiz.rounds] : [];
       let updatedRounds = existingRounds.map(r => {
         if (r.roundNumber === currentRound) {
@@ -401,7 +454,7 @@ export default function QuizWorkspacePage() {
             ...r,
             quizType: selectedRoundType,
             isTypeConfirmed: true,
-            questions
+            questions: sanitizedQuestions
           };
         }
         return r;
@@ -412,7 +465,7 @@ export default function QuizWorkspacePage() {
           roundNumber: currentRound,
           quizType: selectedRoundType,
           isTypeConfirmed: true,
-          questions,
+          questions: sanitizedQuestions,
           isCompleted: false
         });
       }
@@ -421,12 +474,13 @@ export default function QuizWorkspacePage() {
         name: quizName,
         description: quizDescription,
         quizType: selectedRoundType,
-        defaultMarks: Number(defaultMarks) || 1,
+        defaultMarks: cleanDefaultMarks,
+        defaultSecondTryMarks: cleanDefaultSecondMarks,
         defaultTimeValue,
         defaultTimeUnit,
         currentRound,
         rounds: updatedRounds,
-        questions
+        questions: sanitizedQuestions
       });
 
       const slug = slugify(quizName) || targetQuizId;
@@ -444,13 +498,22 @@ export default function QuizWorkspacePage() {
   // Bulk Apply Marks to All Questions
   const handleApplyMarksToAll = () => {
     const markVal = Math.max(1, parseInt(defaultMarks, 10) || 1);
+    const secondMarkVal = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+    setDefaultMarks(markVal);
+    if (selectedRoundType === 'one_question_two_chances') {
+      setDefaultSecondTryMarks(secondMarkVal);
+    }
     setQuestions(prev => prev.map(q => ({
       ...q,
-      marks: markVal
+      marks: markVal,
+      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal } : {})
     })));
+
     setStatusMsg({
       type: 'success',
-      text: `Updated all ${questions.length} questions to ${markVal} mark${markVal === 1 ? '' : 's'} each.`
+      text: selectedRoundType === 'one_question_two_chances'
+        ? `Updated all ${questions.length} questions to ${markVal} pts (1st try) and ${secondMarkVal} pts (2nd try).`
+        : `Updated all ${questions.length} questions to ${markVal} mark${markVal === 1 ? '' : 's'} each.`
     });
     setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
   };
@@ -480,6 +543,11 @@ export default function QuizWorkspacePage() {
   // Bulk Apply Both (Marks and Time) to All Questions
   const handleApplyAllToAll = () => {
     const markVal = Math.max(1, parseInt(defaultMarks, 10) || 1);
+    const secondMarkVal = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+    setDefaultMarks(markVal);
+    if (selectedRoundType === 'one_question_two_chances') {
+      setDefaultSecondTryMarks(secondMarkVal);
+    }
     const numTime = parseFloat(defaultTimeValue);
     const hasTime = defaultTimeValue !== '' && !isNaN(numTime) && numTime > 0;
     const inSeconds = hasTime ? (defaultTimeUnit === 'min' ? Math.round(numTime * 60) : Math.round(numTime)) : null;
@@ -487,6 +555,7 @@ export default function QuizWorkspacePage() {
     setQuestions(prev => prev.map(q => ({
       ...q,
       marks: markVal,
+      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal } : {}),
       timeValue: hasTime ? numTime : '',
       timeUnit: defaultTimeUnit,
       timeLimit: inSeconds
@@ -494,7 +563,9 @@ export default function QuizWorkspacePage() {
 
     setStatusMsg({
       type: 'success',
-      text: `Applied ${markVal} pts and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
+      text: selectedRoundType === 'one_question_two_chances'
+        ? `Applied ${markVal} pts / ${secondMarkVal} pts and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
+        : `Applied ${markVal} pts and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
     });
     setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
   };
@@ -502,18 +573,24 @@ export default function QuizWorkspacePage() {
   // Add a new question
   const handleAddQuestion = () => {
     const markVal = Math.max(1, parseInt(defaultMarks, 10) || 1);
+    const secondMarkVal = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
     const numTime = parseFloat(defaultTimeValue);
     const hasTime = defaultTimeValue !== '' && !isNaN(numTime) && numTime > 0;
     const inSeconds = hasTime ? (defaultTimeUnit === 'min' ? Math.round(numTime * 60) : Math.round(numTime)) : null;
 
+    const isDirect = selectedRoundType === 'answer_to_question';
+    const isTwoChances = selectedRoundType === 'one_question_two_chances';
+
     const newQ = {
       id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       text: '',
+      answer: isDirect ? '' : undefined,
       marks: markVal,
+      secondTryMarks: isTwoChances ? secondMarkVal : undefined,
       timeLimit: inSeconds,
       timeValue: hasTime ? numTime : '',
       timeUnit: defaultTimeUnit || 'sec',
-      options: [
+      options: isDirect ? [] : [
         { id: 'opt_1', text: '', isCorrect: true },
         { id: 'opt_2', text: '', isCorrect: false },
         { id: 'opt_3', text: '', isCorrect: false },
@@ -533,13 +610,16 @@ export default function QuizWorkspacePage() {
       ...target,
       id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       text: target.text ? `${target.text} (Copy)` : '',
+      answer: target.answer !== undefined ? target.answer : '',
       timeLimit: target.timeLimit || null,
       timeValue: target.timeValue !== undefined ? target.timeValue : '',
       timeUnit: target.timeUnit || 'sec',
-      options: target.options.map(o => ({
+      marks: target.marks,
+      secondTryMarks: target.secondTryMarks,
+      options: Array.isArray(target.options) ? target.options.map(o => ({
         ...o,
         id: 'opt_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6)
-      }))
+      })) : []
     };
 
     const nextList = [...questions];
@@ -550,13 +630,17 @@ export default function QuizWorkspacePage() {
   // Delete question
   const handleDeleteQuestion = (idx) => {
     if (questions.length <= 1) {
+      const isDirect = selectedRoundType === 'answer_to_question';
+      const isTwoChances = selectedRoundType === 'one_question_two_chances';
       // If deleting the only question, reset it to an empty question
       setQuestions([
         {
           id: 'q_' + Date.now(),
           text: '',
+          answer: isDirect ? '' : undefined,
           marks: Number(defaultMarks) || 1,
-          options: [
+          secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
+          options: isDirect ? [] : [
             { id: 'opt_1', text: '', isCorrect: true },
             { id: 'opt_2', text: '', isCorrect: false },
             { id: 'opt_3', text: '', isCorrect: false },
@@ -591,12 +675,53 @@ export default function QuizWorkspacePage() {
     });
   };
 
-  // Update Individual Question Marks
-  const handleQuestionMarksChange = (idx, marks) => {
-    const parsed = Math.max(1, parseInt(marks, 10) || 1);
+  // Update Question Answer (for Answer to Question mode)
+  const handleQuestionAnswerChange = (idx, text) => {
     setQuestions(prev => {
       const next = [...prev];
-      next[idx] = { ...next[idx], marks: parsed };
+      next[idx] = { ...next[idx], answer: text };
+      return next;
+    });
+  };
+
+  // Update Individual Question Marks (1st Try / Standard)
+  const handleQuestionMarksChange = (idx, marks) => {
+    const val = marks === '' ? '' : (parseInt(marks, 10) || '');
+    setQuestions(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], marks: val };
+      return next;
+    });
+  };
+
+  const handleQuestionMarksBlur = (idx) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[idx]?.marks;
+      if (cur === '' || cur === null || cur === undefined || Number(cur) < 1) {
+        next[idx] = { ...next[idx], marks: 1 };
+      }
+      return next;
+    });
+  };
+
+  // Update Individual Question 2nd Try Marks (for One Question - 2 Chances)
+  const handleQuestionSecondTryMarksChange = (idx, marks) => {
+    const val = marks === '' ? '' : (parseInt(marks, 10) || '');
+    setQuestions(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], secondTryMarks: val };
+      return next;
+    });
+  };
+
+  const handleQuestionSecondTryMarksBlur = (idx) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[idx]?.secondTryMarks;
+      if (cur === '' || cur === null || cur === undefined || Number(cur) < 1) {
+        next[idx] = { ...next[idx], secondTryMarks: 1 };
+      }
       return next;
     });
   };
@@ -796,23 +921,29 @@ export default function QuizWorkspacePage() {
           <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
             <div className="space-y-2 flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white shrink-0">
                   Round {currentRound}
                 </span>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
-                  {typeDef.name} (MCQ)
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF] shrink-0">
+                  {typeDef.id === 'one_question_two_chances'
+                    ? 'One Question - Two Chances (MCQ)'
+                    : typeDef.id === 'one_question_one_chance'
+                    ? 'One Question - One Chance (MCQ)'
+                    : typeDef.id === 'answer_to_question'
+                    ? 'Answer to Question (Direct Q&A)'
+                    : `${typeDef.name} (MCQ)`}
                 </span>
-                <span className="text-xs text-gray-400">
-                  {typeDef.description}
+                <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap">
+                  <span>{typeDef.description}</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsTypeConfirmed(false)}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/60 dark:hover:bg-violet-900/60 text-[#635BFF] dark:text-[#8881FF] border border-violet-200/80 dark:border-violet-800/60 transition-all cursor-pointer shadow-xs shrink-0"
+                    title="Change quiz type for this round"
+                  >
+                    <span>Change Type</span>
+                  </button>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setIsTypeConfirmed(false)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/60 dark:hover:bg-violet-900/60 text-[#635BFF] dark:text-[#8881FF] border border-violet-200/80 dark:border-violet-800/60 transition-all cursor-pointer shadow-xs ml-1"
-                  title="Change quiz type for this round"
-                >
-                  <span>Change Type</span>
-                </button>
               </div>
 
           <div className="flex items-center gap-3">
@@ -839,11 +970,6 @@ export default function QuizWorkspacePage() {
           <div className="px-3.5 py-2 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-200 dark:border-gray-800 text-center">
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">Questions</span>
             <span className="text-sm font-bold text-gray-900 dark:text-white">{questions.length}</span>
-          </div>
-
-          <div className="px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-center">
-            <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider block">Total Marks</span>
-            <span className="text-sm font-black text-emerald-700 dark:text-emerald-300">{totalMarks} pts</span>
           </div>
 
           <button
@@ -896,47 +1022,95 @@ export default function QuizWorkspacePage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Mark Input */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
-            <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={defaultMarks}
-              onChange={(e) => setDefaultMarks(Math.max(1, parseInt(e.target.value, 10) || 1))}
-              className="w-12 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-            />
-            <span className="text-[11px] text-gray-400">pts</span>
+        <div className="flex flex-col sm:items-end items-center gap-2.5">
+          {/* Mark & Time Inputs Row */}
+          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5">
+            {/* Mark Input(s) */}
+            {selectedRoundType === 'one_question_two_chances' ? (
+              <>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs" title="1st Attempt Marks">
+                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">1st Try:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={defaultMarks !== undefined && defaultMarks !== null ? defaultMarks : ''}
+                    onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                    onBlur={() => {
+                      if (!defaultMarks || Number(defaultMarks) < 1) {
+                        setDefaultMarks(1);
+                      }
+                    }}
+                    className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="text-[11px] text-gray-400">pts</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs" title="2nd Attempt Marks">
+                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">2nd Try:</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={defaultSecondTryMarks !== undefined && defaultSecondTryMarks !== null ? defaultSecondTryMarks : ''}
+                    onChange={(e) => setDefaultSecondTryMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                    onBlur={() => {
+                      if (!defaultSecondTryMarks || Number(defaultSecondTryMarks) < 1) {
+                        setDefaultSecondTryMarks(1);
+                      }
+                    }}
+                    className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="text-[11px] text-gray-400">pts</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
+                <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={defaultMarks !== undefined && defaultMarks !== null ? defaultMarks : ''}
+                  onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                  onBlur={() => {
+                    if (!defaultMarks || Number(defaultMarks) < 1) {
+                      setDefaultMarks(1);
+                    }
+                  }}
+                  className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-[11px] text-gray-400">pts</span>
+              </div>
+            )}
+
+            {/* Time Limit Input with Stylish sec/min */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs">
+              <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
+              <input
+                type="number"
+                min={0}
+                max={defaultTimeUnit === 'min' ? 60 : 3600}
+                placeholder="None"
+                value={defaultTimeValue}
+                onChange={(e) => setDefaultTimeValue(e.target.value)}
+                className="w-14 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
+              />
+              <StylishUnitDropdown
+                value={defaultTimeUnit}
+                onChange={setDefaultTimeUnit}
+              />
+            </div>
           </div>
 
-          {/* Time Limit Input with Stylish sec/min */}
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs">
-            <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-            <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
-            <input
-              type="number"
-              min={0}
-              max={defaultTimeUnit === 'min' ? 60 : 3600}
-              placeholder="None"
-              value={defaultTimeValue}
-              onChange={(e) => setDefaultTimeValue(e.target.value)}
-              className="w-14 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
-            />
-            <StylishUnitDropdown
-              value={defaultTimeUnit}
-              onChange={setDefaultTimeUnit}
-            />
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center gap-1.5">
+          {/* Action Buttons: Centered in the middle */}
+          <div className="flex items-center justify-center gap-2 w-full">
             <button
               type="button"
               onClick={handleApplyMarksToAll}
               title="Apply only marks to all questions"
-              className="px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-xs shadow-violet-600/25 transition-all cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-xs shadow-violet-600/25 transition-all cursor-pointer whitespace-nowrap"
             >
               Apply Marks
             </button>
@@ -945,7 +1119,7 @@ export default function QuizWorkspacePage() {
               type="button"
               onClick={handleApplyTimeToAll}
               title="Apply only time limit to all questions"
-              className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs shadow-amber-600/25 transition-all cursor-pointer whitespace-nowrap"
+              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs shadow-amber-600/25 transition-all cursor-pointer whitespace-nowrap"
             >
               Apply Time
             </button>
@@ -954,7 +1128,7 @@ export default function QuizWorkspacePage() {
               type="button"
               onClick={handleApplyAllToAll}
               title="Apply both marks and time limit to all questions"
-              className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs shadow-indigo-600/25 transition-all cursor-pointer whitespace-nowrap"
+              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs shadow-indigo-600/25 transition-all cursor-pointer whitespace-nowrap"
             >
               Apply to All
             </button>
@@ -978,18 +1152,51 @@ export default function QuizWorkspacePage() {
                   </span>
 
                   {/* Individual Question Marks Input */}
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50">
-                    <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">Marks:</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={q.marks || 1}
-                      onChange={(e) => handleQuestionMarksChange(qIdx, e.target.value)}
-                      className="w-12 text-xs font-black text-emerald-700 dark:text-emerald-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400">pts</span>
-                  </div>
+                  {selectedRoundType === 'one_question_two_chances' ? (
+                    <>
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50" title="Marks for 1st attempt">
+                        <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">1st Try:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={q.marks !== undefined && q.marks !== null ? q.marks : ''}
+                          onChange={(e) => handleQuestionMarksChange(qIdx, e.target.value)}
+                          onBlur={() => handleQuestionMarksBlur(qIdx)}
+                          className="w-12 sm:w-14 text-xs font-black text-emerald-700 dark:text-emerald-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400">pts</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/50" title="Marks for 2nd attempt">
+                        <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-400">2nd Try:</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={q.secondTryMarks !== undefined && q.secondTryMarks !== null ? q.secondTryMarks : ''}
+                          onChange={(e) => handleQuestionSecondTryMarksChange(qIdx, e.target.value)}
+                          onBlur={() => handleQuestionSecondTryMarksBlur(qIdx)}
+                          className="w-12 sm:w-14 text-xs font-black text-teal-700 dark:text-teal-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[10px] text-teal-600 dark:text-teal-400">pts</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/50">
+                      <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">Marks:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={q.marks !== undefined && q.marks !== null ? q.marks : ''}
+                        onChange={(e) => handleQuestionMarksChange(qIdx, e.target.value)}
+                        onBlur={() => handleQuestionMarksBlur(qIdx)}
+                        className="w-12 sm:w-14 text-xs font-black text-emerald-700 dark:text-emerald-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400">pts</span>
+                    </div>
+                  )}
 
                   {/* Optional Time Limit Input with Stylish sec/min */}
                   <div
@@ -1066,98 +1273,114 @@ export default function QuizWorkspacePage() {
                 />
               </div>
 
-              {/* Multiple Choice Options List */}
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Options <span className="normal-case font-normal text-gray-400">(Select the radio button to designate the correct answer)</span>
+              {selectedRoundType === 'answer_to_question' ? (
+                /* Direct Answer (Answer to Question) */
+                <div className="space-y-1.5 pt-1">
+                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
+                    Correct Answer <span className="normal-case font-normal text-gray-400">(Revealed when "Show Answer" is clicked during quiz)</span>
                   </label>
-                  <span className="text-[10px] font-semibold text-gray-400">
-                    {q.options.length} Options
-                  </span>
+                  <textarea
+                    rows={2}
+                    value={q.answer || ''}
+                    onChange={(e) => handleQuestionAnswerChange(qIdx, e.target.value)}
+                    placeholder="Enter the correct answer to be revealed, e.g. Canberra / Mitochondria / 1969..."
+                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400 resize-none shadow-xs"
+                  />
                 </div>
+              ) : (
+                /* Multiple Choice Options List */
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                      Options <span className="normal-case font-normal text-gray-400">(Select the radio button to designate the correct answer)</span>
+                    </label>
+                    <span className="text-[10px] font-semibold text-gray-400">
+                      {(q.options || []).length} Options
+                    </span>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {q.options.map((opt, optIdx) => {
-                    const isCorrect = Boolean(opt.isCorrect);
-                    const letter = OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx);
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {(q.options || []).map((opt, optIdx) => {
+                      const isCorrect = Boolean(opt.isCorrect);
+                      const letter = OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx);
 
-                    return (
-                      <div
-                        key={opt.id || optIdx}
-                        className={`flex items-center gap-2.5 p-2 rounded-xl border transition-all ${
-                          isCorrect
-                            ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500/80 dark:border-emerald-500/80 ring-1 ring-emerald-500/30'
-                            : 'bg-gray-50/70 dark:bg-[#12141F] border-gray-200 dark:border-gray-800/80 hover:border-gray-300 dark:hover:border-gray-700'
-                        }`}
-                      >
-                        {/* Radio Button to mark as One Correct Answer */}
-                        <button
-                          type="button"
-                          onClick={() => handleSetCorrectOption(qIdx, optIdx)}
-                          className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                      return (
+                        <div
+                          key={opt.id || optIdx}
+                          className={`flex items-center gap-2.5 p-2 rounded-xl border transition-all ${
                             isCorrect
-                              ? 'border-emerald-600 bg-emerald-600 text-white shadow-xs shadow-emerald-600/30'
-                              : 'border-gray-300 dark:border-gray-700 hover:border-emerald-500 text-transparent'
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500/80 dark:border-emerald-500/80 ring-1 ring-emerald-500/30'
+                              : 'bg-gray-50/70 dark:bg-[#12141F] border-gray-200 dark:border-gray-800/80 hover:border-gray-300 dark:hover:border-gray-700'
                           }`}
-                          title={isCorrect ? 'Correct Answer' : 'Click to set as Correct Answer'}
                         >
-                          <Check className="w-3.5 h-3.5 stroke-[3]" />
-                        </button>
-
-                        {/* Option Letter Tag */}
-                        <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center shrink-0 ${
-                          isCorrect
-                            ? 'bg-emerald-200/80 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200'
-                            : 'bg-gray-200/80 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-                        }`}>
-                          {letter}
-                        </span>
-
-                        {/* Option Input */}
-                        <input
-                          type="text"
-                          value={opt.text || ''}
-                          onChange={(e) => handleOptionTextChange(qIdx, optIdx, e.target.value)}
-                          placeholder={`Option ${letter}...`}
-                          className="flex-1 min-w-0 bg-transparent text-xs font-semibold text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"
-                        />
-
-                        {/* Correct Answer Badge */}
-                        {isCorrect && (
-                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
-                            Correct
-                          </span>
-                        )}
-
-                        {/* Remove Option Button */}
-                        {q.options.length > 2 && (
+                          {/* Radio Button to mark as One Correct Answer */}
                           <button
                             type="button"
-                            onClick={() => handleRemoveOption(qIdx, optIdx)}
-                            className="p-1 rounded-md text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0"
-                            title="Remove option"
+                            onClick={() => handleSetCorrectOption(qIdx, optIdx)}
+                            className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 transition-all cursor-pointer ${
+                              isCorrect
+                                ? 'border-emerald-600 bg-emerald-600 text-white shadow-xs shadow-emerald-600/30'
+                                : 'border-gray-300 dark:border-gray-700 hover:border-emerald-500 text-transparent'
+                            }`}
+                            title={isCorrect ? 'Correct Answer' : 'Click to set as Correct Answer'}
                           >
-                            <X className="w-3.5 h-3.5" />
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
                           </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
 
-                {/* Add Option Button */}
-                {q.options.length < 8 && (
-                  <button
-                    type="button"
-                    onClick={() => handleAddOption(qIdx)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 hover:border-violet-500 dark:hover:border-violet-500 text-gray-600 dark:text-gray-300 hover:text-violet-600 dark:hover:text-violet-400 text-xs font-semibold transition-all cursor-pointer mt-1"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Another Option</span>
-                  </button>
-                )}
-              </div>
+                          {/* Option Letter Tag */}
+                          <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center shrink-0 ${
+                            isCorrect
+                              ? 'bg-emerald-200/80 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200'
+                              : 'bg-gray-200/80 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                          }`}>
+                            {letter}
+                          </span>
+
+                          {/* Option Input */}
+                          <input
+                            type="text"
+                            value={opt.text || ''}
+                            onChange={(e) => handleOptionTextChange(qIdx, optIdx, e.target.value)}
+                            placeholder={`Option ${letter}...`}
+                            className="flex-1 min-w-0 bg-transparent text-xs font-semibold text-gray-900 dark:text-white placeholder:text-gray-400 focus:outline-none"
+                          />
+
+                          {/* Correct Answer Badge */}
+                          {isCorrect && (
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 shrink-0">
+                              Correct
+                            </span>
+                          )}
+
+                          {/* Remove Option Button */}
+                          {(q.options || []).length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveOption(qIdx, optIdx)}
+                              className="p-1 rounded-md text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer shrink-0"
+                              title="Remove option"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add Option Button */}
+                  {(q.options || []).length < 8 && (
+                    <button
+                      type="button"
+                      onClick={() => handleAddOption(qIdx)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-gray-300 dark:border-gray-700 hover:border-violet-500 dark:hover:border-violet-500 text-gray-600 dark:text-gray-300 hover:text-violet-600 dark:hover:text-violet-400 text-xs font-semibold transition-all cursor-pointer mt-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add Another Option</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -1175,34 +1398,36 @@ export default function QuizWorkspacePage() {
         </div>
       </div>
 
-      {/* Sticky Bottom Save Bar */}
-      <div className="fixed bottom-3 sm:bottom-4 left-1/2 -translate-x-1/2 z-30 max-w-lg w-[calc(100%-1.5rem)] sm:w-[calc(100%-2rem)] p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-[#161925]/95 border border-gray-200 dark:border-gray-800 shadow-2xl backdrop-blur-md flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-3">
-        <div className="flex items-center gap-2 pl-1 sm:pl-2">
-          <span className="text-[11px] sm:text-xs font-semibold text-gray-700 dark:text-gray-300">
-            <strong>{questions.length}</strong> questions (total marks {totalMarks})
-          </span>
-        </div>
+      {/* Sticky Bottom Save Bar (Centered in the main page area without being offset by sidebar) */}
+      <div className="fixed bottom-3 sm:bottom-4 left-0 right-0 md:left-[var(--sidebar-width,16rem)] z-30 flex justify-center pointer-events-none px-3 sm:px-4">
+        <div className="pointer-events-auto max-w-lg w-full p-2.5 sm:p-3 rounded-2xl bg-white/95 dark:bg-[#161925]/95 border border-gray-200 dark:border-gray-800 shadow-2xl backdrop-blur-md flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 pl-1 sm:pl-2">
+            <span className="text-[11px] sm:text-xs font-semibold text-gray-700 dark:text-gray-300">
+              <strong>{questions.length}</strong> {questions.length === 1 ? 'question' : 'questions'}
+            </span>
+          </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
-          <button
-            type="button"
-            onClick={handleSaveQuiz}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{saving ? 'Saving...' : 'Save Changes'}</span>
-          </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
+            <button
+              type="button"
+              onClick={handleSaveQuiz}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>{saving ? 'Saving...' : 'Save Changes'}</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={handleGoToNext}
-            disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer disabled:opacity-50"
-          >
-            <span>{saving ? 'Saving...' : 'Next'}</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+            <button
+              type="button"
+              onClick={handleGoToNext}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer disabled:opacity-50"
+            >
+              <span>{saving ? 'Saving...' : 'Next'}</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
       </>

@@ -18,6 +18,13 @@ export default function StylishQuizTypeDropdown({ selectedTypeId, onChange }) {
 
   const currentType = QUIZ_TYPES.find(t => t.id === selectedTypeId) || null;
 
+  const getBadgeLabel = (type) => {
+    if (!type) return 'MCQ';
+    if (type.mode === 'direct') return 'Direct Q&A';
+    if (type.mode === 'mcq_2') return '2 Chances';
+    return 'MCQ';
+  };
+
   return (
     <div className="relative w-full" ref={dropdownRef}>
       <button
@@ -33,7 +40,7 @@ export default function StylishQuizTypeDropdown({ selectedTypeId, onChange }) {
                   {currentType.name}
                 </span>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-100 dark:bg-violet-900/60 text-violet-700 dark:text-violet-300">
-                  MCQ
+                  {getBadgeLabel(currentType)}
                 </span>
               </div>
               <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
@@ -81,6 +88,9 @@ export default function StylishQuizTypeDropdown({ selectedTypeId, onChange }) {
                   <div className="flex items-center gap-2">
                     <span className={`text-xs font-bold ${isSelected ? 'text-violet-900 dark:text-white' : 'text-gray-900 dark:text-gray-200'}`}>
                       {type.name}
+                    </span>
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-violet-100/70 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300">
+                      {getBadgeLabel(type)}
                     </span>
                     {!isAvail && (
                       <span className="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">

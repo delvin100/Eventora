@@ -205,12 +205,8 @@ export default function QuizDashboardPage() {
                 className="group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/70 dark:hover:border-violet-500/70 transition-all p-5 shadow-xs hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-0.5 cursor-pointer"
               >
                 <div className="space-y-3.5">
-                  {/* Top Type badge & Delete button on top right */}
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
-                      {typeDef.name}
-                    </span>
-
+                  {/* Top Delete button on top right */}
+                  <div className="flex items-center justify-end">
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -231,23 +227,6 @@ export default function QuizDashboardPage() {
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 min-h-[32px]">
                       {quiz.description || 'No description provided.'}
                     </p>
-                  </div>
-
-                  {/* Stats Pill */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-100 dark:border-gray-800 text-center">
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">Questions</span>
-                      <span className="text-sm font-bold text-gray-900 dark:text-white">
-                        {quiz.questionsCount || 0}
-                      </span>
-                    </div>
-
-                    <div className="px-3 py-2 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-100 dark:border-gray-800 text-center">
-                      <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">Total Marks</span>
-                      <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                        {quiz.totalMarks || 0} pts
-                      </span>
-                    </div>
                   </div>
                 </div>
 
