@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, CalendarDays, Star, ArrowRight } from 'lucide-react';
+import { Plus, Search, CalendarDays, Star, ArrowRight, Trash2 } from 'lucide-react';
 import { eventService } from '../services/eventService';
 import { slugify } from '../utils/slugUtils';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 
 export default function EventsListPage() {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [eventToDelete, setEventToDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
 
   const categories = ['All', 'Classroom', 'Team activity', 'Lucky draw', 'Tournament', 'Personal', 'General'];
 
@@ -31,6 +34,21 @@ export default function EventsListPage() {
   const handleToggleFavorite = async (eventId, currentFavorite) => {
     await eventService.toggleFavorite(eventId, currentFavorite);
     setEvents(prev => prev.map(e => e.id === eventId ? { ...e, is_favorite: !currentFavorite } : e));
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    try {
+      setDeleteLoading(true);
+      await eventService.deleteEvent(eventToDelete.id);
+      setEvents(prev => prev.filter(e => e.id !== eventToDelete.id));
+      setEventToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete event:', err);
+      alert('Failed to delete event: ' + (err.message || 'Unknown error'));
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
   const filtered = events.filter(e => {
@@ -107,13 +125,24 @@ export default function EventsListPage() {
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 text-[#635BFF]">
                     {event.category || 'General'}
                   </span>
-                  <button
-                    onClick={() => handleToggleFavorite(event.id, event.is_favorite)}
-                    className="text-gray-400 hover:text-amber-500 cursor-pointer"
-                    title={event.is_favorite ? 'Favorited' : 'Add to favorites'}
-                  >
-                    <Star className={`w-4 h-4 ${event.is_favorite ? 'fill-amber-400 text-amber-400' : ''}`} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleToggleFavorite(event.id, event.is_favorite)}
+                      className="text-gray-400 hover:text-amber-500 cursor-pointer p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                      title={event.is_favorite ? 'Favorited' : 'Add to favorites'}
+                    >
+                      <Star className={`w-4 h-4 ${event.is_favorite ? 'fill-amber-400 text-amber-400' : ''}`} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEventToDelete(event)}
+                      className="text-gray-400 hover:text-red-500 dark:hover:text-red-400 cursor-pointer p-1 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                      title="Delete event"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
                 <h3 className="font-bold text-base text-gray-900 dark:text-white line-clamp-1">
                   {event.name}
@@ -162,6 +191,19 @@ export default function EventsListPage() {
           )}
         </div>
       )}
+
+      {/* Delete Event Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={Boolean(eventToDelete)}
+        title={`Delete "${eventToDelete?.name}"?`}
+        message={`Are you sure you want to permanently delete "${eventToDelete?.name}" and all of its participants, draw results, and activity history? This action cannot be undone.`}
+        confirmText="Yes, Permanently Delete"
+        cancelText="Cancel"
+        isDanger={true}
+        loading={deleteLoading}
+        onConfirm={handleDeleteEvent}
+        onCancel={() => setEventToDelete(null)}
+      />
     </div>
   );
 }

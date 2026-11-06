@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Trophy,
   Award,
@@ -8,7 +8,6 @@ import {
   Calendar,
   Layers,
   Download,
-  Printer,
   X,
   Search,
   Filter,
@@ -34,6 +33,17 @@ export default function SpecialEventDetailedReportModal({
   const [activeTab, setActiveTab] = useState('leaderboard'); // 'leaderboard' | 'breakdown' | 'audit'
   const [roundFilter, setRoundFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Prevent background scrolling when modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [isOpen]);
 
   const roundsConfig = specialSettings?.rounds || [
     { roundNumber: 1, task: 'Round 1 Assessment' },
@@ -240,8 +250,8 @@ export default function SpecialEventDetailedReportModal({
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-md overflow-y-auto print:p-0 print:bg-white">
-      <div className="relative w-full max-w-5xl bg-white dark:bg-[#141724] rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in duration-200 print:border-none print:shadow-none print:max-h-none print:w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-md overflow-hidden overscroll-contain">
+      <div className="relative w-full max-w-5xl bg-white dark:bg-[#141724] rounded-3xl shadow-2xl border border-gray-200 dark:border-gray-800 flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in duration-200">
         
         {/* =====================================================================
             MODAL HEADER & EVENT CONCLUDED BANNER
@@ -267,25 +277,15 @@ export default function SpecialEventDetailedReportModal({
             </div>
 
             {/* Quick Action Buttons */}
-            <div className="flex items-center gap-2 print:hidden">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={handleExportExcel}
                 className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Download Excel Workbook"
+                title="Download Excel (.xlsx)"
               >
                 <FileSpreadsheet className="w-4 h-4" />
                 <span className="hidden sm:inline">Export Excel</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-3.5 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold border border-gray-700 flex items-center gap-1.5 transition-colors cursor-pointer"
-                title="Print or Save PDF"
-              >
-                <Printer className="w-4 h-4" />
-                <span className="hidden sm:inline">Print</span>
               </button>
 
               <button
@@ -383,7 +383,7 @@ export default function SpecialEventDetailedReportModal({
             </button>
           </div>
 
-          <div className="relative w-full sm:w-56">
+          <div className="relative w-full sm:w-56" data-html2canvas-ignore="true">
             <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
             <input
               type="text"
@@ -398,7 +398,7 @@ export default function SpecialEventDetailedReportModal({
         {/* =====================================================================
             BODY CONTENT AREA (Scrollable)
            ===================================================================== */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="p-6 overflow-y-auto overscroll-contain space-y-6 flex-1">
           
           {/* ===================================================================
               TAB 1: LEADERBOARD & FINAL SUMMARY
@@ -512,19 +512,21 @@ export default function SpecialEventDetailedReportModal({
                             >
                               <td className="px-5 py-4 font-black">
                                 {p.rank === 1 && p.totalEvaluationsCount > 0 ? (
-                                  <span className="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs shadow-xs">
-                                    🥇
+                                  <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-amber-950 font-black text-sm flex items-center justify-center shadow-md shadow-amber-500/40 border border-amber-200 ring-2 ring-amber-400/30">
+                                    1
                                   </span>
                                 ) : p.rank === 2 && p.totalEvaluationsCount > 0 ? (
-                                  <span className="w-6 h-6 rounded-lg bg-slate-400 text-white flex items-center justify-center text-xs shadow-xs">
-                                    🥈
+                                  <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-slate-100 via-slate-200 to-slate-400 text-slate-900 font-black text-sm flex items-center justify-center shadow-md shadow-slate-400/40 border border-slate-200 ring-2 ring-slate-300/30">
+                                    2
                                   </span>
                                 ) : p.rank === 3 && p.totalEvaluationsCount > 0 ? (
-                                  <span className="w-6 h-6 rounded-lg bg-amber-700 text-white flex items-center justify-center text-xs shadow-xs">
-                                    🥉
+                                  <span className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-amber-50 font-black text-sm flex items-center justify-center shadow-md shadow-amber-800/40 border border-amber-500 ring-2 ring-amber-600/30">
+                                    3
                                   </span>
                                 ) : (
-                                  <span className="text-gray-400 font-bold">#{p.rank}</span>
+                                  <span className="w-8 h-8 rounded-xl bg-gray-100 dark:bg-gray-800/80 text-gray-500 dark:text-gray-400 font-bold text-xs flex items-center justify-center border border-gray-200 dark:border-gray-700/60">
+                                    #{p.rank}
+                                  </span>
                                 )}
                               </td>
                               <td className="px-5 py-4 font-bold text-gray-900 dark:text-white">
@@ -648,8 +650,16 @@ export default function SpecialEventDetailedReportModal({
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-800/80 pb-3">
                         <div className="flex items-center gap-2.5">
-                          <span className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-black text-xs flex items-center justify-center">
-                            #{p.rank}
+                          <span className={`w-7 h-7 rounded-lg font-black text-xs flex items-center justify-center shrink-0 ${
+                            p.rank === 1 && p.totalEvaluationsCount > 0
+                              ? 'bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-amber-950 shadow-xs border border-amber-200'
+                              : p.rank === 2 && p.totalEvaluationsCount > 0
+                              ? 'bg-gradient-to-br from-slate-100 via-slate-200 to-slate-400 text-slate-900 shadow-xs border border-slate-200'
+                              : p.rank === 3 && p.totalEvaluationsCount > 0
+                              ? 'bg-gradient-to-br from-amber-600 via-amber-700 to-amber-800 text-amber-50 shadow-xs border border-amber-500'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                          }`}>
+                            {p.rank <= 3 && p.totalEvaluationsCount > 0 ? p.rank : `#${p.rank}`}
                           </span>
                           <h4 className="text-sm font-bold text-gray-900 dark:text-white">
                             {p.name}
@@ -819,16 +829,16 @@ export default function SpecialEventDetailedReportModal({
            ===================================================================== */}
         <div className="px-6 py-4 bg-gray-50 dark:bg-[#11131D] border-t border-gray-200 dark:border-gray-800 flex items-center justify-between shrink-0 print:hidden">
           <p className="text-xs text-gray-500 dark:text-gray-400">
-            Official immutable evaluation report generated for {eventName}.
+            Official evaluation report generated for {eventName}.
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2" data-html2canvas-ignore="true">
             <button
               type="button"
               onClick={handleExportExcel}
               className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-sm flex items-center gap-1.5 cursor-pointer"
             >
-              <Download className="w-4 h-4" />
-              <span>Export Workbook</span>
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export Excel</span>
             </button>
             <button
               type="button"

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { eventService } from '../services/eventService';
 import { slugify } from '../utils/slugUtils';
 
@@ -9,16 +9,11 @@ export default function NewEventPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('Classroom');
-  const [accentColor, setAccentColor] = useState('#635BFF');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
   const categories = [
     'Catechism & Faith', 'Classroom', 'Student Tasks & Challenges', 'Team activity', 'Lucky draw', 'Tournament', 'Workshop', 'Personal', 'General'
-  ];
-
-  const colors = [
-    '#635BFF', '#159A72', '#F59E0B', '#EF4444', '#3B82F6', '#8B5CF6', '#EC4899'
   ];
 
   const handleSubmit = async (e) => {
@@ -32,7 +27,7 @@ export default function NewEventPage() {
         name: name.trim(),
         description: description.trim(),
         category,
-        accent_color: accentColor
+        accent_color: '#635BFF'
       });
 
       navigate(`/app/events/${slugify(createdEvent.name)}`);
@@ -120,29 +115,10 @@ export default function NewEventPage() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-2">
-              Accent Color
-            </label>
-            <div className="flex items-center gap-3">
-              {colors.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => setAccentColor(c)}
-                  className="w-7 h-7 rounded-full flex items-center justify-center transition-transform hover:scale-110 cursor-pointer"
-                  style={{ backgroundColor: c }}
-                >
-                  {accentColor === c && <Check className="w-4 h-4 text-white" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-3">
             <Link
               to="/app/events"
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900"
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors cursor-pointer"
             >
               Cancel
             </Link>

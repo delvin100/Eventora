@@ -81,13 +81,15 @@ export const eventController = {
     try {
       const { eventId } = req.params;
       if (isSupabaseEnabled && supabase) {
+        // Explicitly wipe related participants and results
+        await supabase.from('participants').delete().eq('event_id', eventId);
+        await supabase.from('results').delete().eq('event_id', eventId);
         await supabase
           .from('events')
           .delete()
-          .eq('id', eventId)
-          .eq('owner_id', req.user.id);
+          .eq('id', eventId);
       }
-      res.json({ success: true, message: 'Event deleted' });
+      res.json({ success: true, message: 'Event and all related data deleted successfully' });
     } catch (err) {
       next(err);
     }

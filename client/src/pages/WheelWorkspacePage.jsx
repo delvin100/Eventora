@@ -408,8 +408,98 @@ export default function WheelWorkspacePage() {
   };
 
   const handleStartEvaluation = async (winner) => {
+    // Immediately remove from wheel and dropdown upon sending to evaluation
+    setRemovedIds(prev => {
+      const next = new Set([...prev, winner.id]);
+      try {
+        localStorage.setItem(
+          `eventora_removed_${eventId}_r${currentRoundNumber}`,
+          JSON.stringify([...next])
+        );
+      } catch (_) {}
+      return next;
+    });
+
     const updated = await specialEventLiveService.startEvaluation({
       student: winner,
+      roundNumber: currentRoundNumber,
+      roundTask: currentRoundTask
+    });
+    if (updated) setLiveState(updated);
+  };
+
+  const handleManualSendToEvaluation = async (participant) => {
+    if (!participant) return;
+
+    // Immediately remove from wheel and dropdown
+    setRemovedIds(prev => {
+      const next = new Set([...prev, participant.id]);
+      try {
+        localStorage.setItem(
+          `eventora_removed_${eventId}_r${currentRoundNumber}`,
+          JSON.stringify([...next])
+        );
+      } catch (_) {}
+      return next;
+    });
+
+    setCurrentWinner(participant);
+    setAssignedTask(null);
+    setIsWinnerDialogOpen(true);
+
+    try {
+      localStorage.setItem(`eventora_current_winner_${eventId}`, JSON.stringify({
+        winner: participant,
+        assignedTask: null,
+        round: currentRoundNumber
+      }));
+    } catch (_) {}
+
+    // Audio victory chime
+    if (soundEnabled) {
+      playVictorySound();
+    }
+
+    // Confetti celebration
+    if (celebrationEnabled) {
+      confetti({
+        particleCount: 80,
+        spread: 65,
+        origin: { y: 0.55 },
+        colors: ['#635BFF', '#159A72', '#F59E0B', '#EC4899', '#3B82F6']
+      });
+    }
+
+    // Save result to local history drawer
+    const entry = {
+      id: 'manual-' + Date.now(),
+      winner: participant,
+      assignedTask: null,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      date: formatDate(new Date())
+    };
+    setHistory(prev => [entry, ...prev]);
+
+    // Save snapshot record directly into Supabase results table
+    resultService.saveResult({
+      event_id: eventId,
+      result_name: `Selected for Evaluation: ${participant.name}`,
+      operation_type: 'wheel',
+      settings: { duration, removeWinnerOnDraw, soundEnabled, assignTaskMode, selectedTaskPack },
+      result_snapshot: {
+        winner: participant.name,
+        winner_id: participant.id,
+        participant_count: eligibleParticipants.length,
+        task: currentRoundTask,
+        manualSelection: true
+      }
+    }).catch(err => {
+      console.error('Failed to log manual selection to Supabase:', err);
+    });
+
+    // Start live evaluation
+    const updated = await specialEventLiveService.startEvaluation({
+      student: participant,
       roundNumber: currentRoundNumber,
       roundTask: currentRoundTask
     });
@@ -734,6 +824,9 @@ export default function WheelWorkspacePage() {
               selectedTaskPack={selectedTaskPack}
               onSelectTaskPack={setSelectedTaskPack}
               isSpecialEvent={isSpecialEvent}
+              eligibleParticipants={eligibleParticipants}
+              onManualSendToEvaluation={handleManualSendToEvaluation}
+              isEvalLocked={isEvalActive && !allCurrentEvaluatorsSubmitted}
             />
 
             <WheelHistoryDrawer

@@ -18,6 +18,7 @@ import {
   Clock
 } from 'lucide-react';
 import { ENCOURAGING_AFFIRMATIONS } from '../../utils/taskBank';
+import { specialEventLiveService } from '../../services/specialEventLiveService';
 
 const SELECTED_BANNER_TEXT = "Congratulations on being selected! 🎊";
 
@@ -323,18 +324,23 @@ export default function WinnerDialog({
                 ) : (
                   <button
                     disabled={isSpinLocked}
-                    onClick={() => {
+                    onClick={async () => {
                       setTaskCompleted(false);
+                      if (isSpecialEvent) {
+                        try {
+                          await specialEventLiveService.finishStudent();
+                        } catch (_) {}
+                      }
                       onRemoveWinner(winner);
                       onClose();
                     }}
                     className={`text-xs font-semibold transition-colors ${
                       isSpinLocked
-                        ? 'text-red-500/40 dark:text-red-500/30 cursor-not-allowed'
-                        : 'text-red-500 hover:text-red-600 hover:underline cursor-pointer'
+                        ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                        : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:underline cursor-pointer'
                     }`}
                   >
-                    Remove & Close
+                    {isSpecialEvent ? 'Close Dialog' : 'Remove & Close'}
                   </button>
                 )}
               </div>

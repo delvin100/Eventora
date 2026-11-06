@@ -127,15 +127,60 @@ export const eventService = {
     return data;
   },
 
-  // Delete event
+  // Delete event and all associated participants, results, and caches completely
   async deleteEvent(eventId) {
-    if (!supabase) return;
-    const { error } = await supabase
-      .from('events')
-      .delete()
-      .eq('id', eventId);
+    if (!eventId) return;
 
-    if (error) throw error;
+    // 1. Try backend API first
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
+      await fetch(`${API_BASE_URL}/events/${eventId}`, {
+        method: 'DELETE'
+      }).catch(() => {});
+    } catch (_) {}
+
+    if (supabase) {
+      // 2. Explicitly delete related participants
+      try {
+        await supabase
+          .from('participants')
+          .delete()
+          .eq('event_id', eventId);
+      } catch (err) {
+        console.warn('Error deleting participants for event:', err);
+      }
+
+      // 3. Explicitly delete related results (draws, spins, groups, shuffles)
+      try {
+        await supabase
+          .from('results')
+          .delete()
+          .eq('event_id', eventId);
+      } catch (err) {
+        console.warn('Error deleting results for event:', err);
+      }
+
+      // 4. Delete the event itself
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
+
+      if (error) throw error;
+    }
+
+    // 5. Clean any localStorage keys related to this event
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.includes(eventId)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (_) {}
+
     return true;
   }
 };
