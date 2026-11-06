@@ -2,12 +2,15 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import {
   ArrowRight,
-  CheckCircle2
+  CheckCircle2,
+  LayoutDashboard
 } from 'lucide-react';
 import EventoraLogo from '../components/EventoraLogo';
 import MiniWheelPreview from '../components/MiniWheelPreview';
+import { useAuth } from '../context/AuthContext';
 
 export default function LandingPage() {
+  const { user } = useAuth();
 
   return (
     <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] flex flex-col justify-between transition-colors duration-200">
@@ -21,21 +24,32 @@ export default function LandingPage() {
 
 
           <div className="flex items-center gap-3">
+            {user ? (
+              <Link
+                to="/app"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 hover:shadow-lg hover:shadow-[#635BFF]/35 transition-all"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Go to Dashboard</span>
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-[#635BFF] px-3 py-2 rounded-lg transition-colors"
+                >
+                  Sign In
+                </Link>
 
-            <Link
-              to="/login"
-              className="text-sm font-semibold text-gray-700 dark:text-gray-200 hover:text-[#635BFF] px-3 py-2 rounded-lg transition-colors"
-            >
-              Sign In
-            </Link>
-
-            <Link
-              to="/signup"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 hover:shadow-lg hover:shadow-[#635BFF]/35 transition-all"
-            >
-              <span>Get Started</span>
-              <ArrowRight className="w-4 h-4" />
-            </Link>
+                <Link
+                  to="/signup"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 hover:shadow-lg hover:shadow-[#635BFF]/35 transition-all"
+                >
+                  <span>Get Started</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </>
+            )}
           </div>
         </div>
       </nav>
@@ -60,20 +74,33 @@ export default function LandingPage() {
               </p>
 
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                <Link
-                  to="/signup"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-base shadow-lg shadow-[#635BFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
-                >
-                  <span>Start Free with Eventora</span>
-                  <ArrowRight className="w-5 h-5" />
-                </Link>
+                {user ? (
+                  <Link
+                    to="/app"
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-base shadow-lg shadow-[#635BFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  >
+                    <LayoutDashboard className="w-5 h-5" />
+                    <span>Go to Dashboard</span>
+                    <ArrowRight className="w-5 h-5" />
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      to="/signup"
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-base shadow-lg shadow-[#635BFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                    >
+                      <span>Start Free with Eventora</span>
+                      <ArrowRight className="w-5 h-5" />
+                    </Link>
 
-                <Link
-                  to="/login"
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-white dark:bg-[#181B26] hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-semibold text-base shadow-sm transition-all cursor-pointer"
-                >
-                  <span>Sign In to Account</span>
-                </Link>
+                    <Link
+                      to="/login"
+                      className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-white dark:bg-[#181B26] hover:bg-gray-50 dark:hover:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-semibold text-base shadow-sm transition-all cursor-pointer"
+                    >
+                      <span>Sign In to Account</span>
+                    </Link>
+                  </>
+                )}
               </div>
 
               {/* Trust & Guarantee bullets */}

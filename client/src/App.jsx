@@ -5,6 +5,7 @@ import { ThemeProvider } from './context/ThemeContext';
 
 // Layout & Pages
 import AppLayout from './components/layout/AppLayout';
+import ProtectedRoute from './components/common/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
@@ -60,7 +61,14 @@ export default function App() {
             <Route path="/ps/login" element={<PrathibhaLoginPage />} />
 
             {/* Authenticated Application Shell */}
-            <Route path="/app" element={<AppLayout />}>
+            <Route
+              path="/app"
+              element={
+                <ProtectedRoute>
+                  <AppLayout />
+                </ProtectedRoute>
+              }
+            >
               <Route index element={<DashboardOverview />} />
               <Route path="events" element={<EventsListPage />} />
               <Route path="events/new" element={<NewEventPage />} />

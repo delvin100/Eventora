@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import {
   ArrowLeft,
+  ArrowRight,
   Users,
   RotateCw,
   Plus,
@@ -26,7 +27,8 @@ import {
   Shuffle,
   ChevronRight,
   ChevronDown,
-  Trophy
+  Trophy,
+  Lock
 } from 'lucide-react';
 
 import WheelCanvas from '../components/wheel/WheelCanvas';
@@ -37,12 +39,15 @@ import { slugify } from '../utils/slugUtils';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-const getQuizSessionKey = (id) => `eventora_quiz_session_${id}`;
+const getQuizSessionKey = (id, round = 1) => `eventora_quiz_session_${id}_r${round}`;
 
-const loadSavedQuizSession = (id) => {
+const loadSavedQuizSession = (id, round = 1) => {
   if (!id) return { usedQuestionIds: [], removedIds: [] };
   try {
-    const raw = localStorage.getItem(getQuizSessionKey(id));
+    let raw = localStorage.getItem(getQuizSessionKey(id, round));
+    if (!raw && Number(round) === 1) {
+      raw = localStorage.getItem(`eventora_quiz_session_${id}`);
+    }
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
@@ -54,10 +59,10 @@ const loadSavedQuizSession = (id) => {
   return { usedQuestionIds: [], removedIds: [] };
 };
 
-const saveQuizSession = (id, usedQIds, remIds) => {
+const saveQuizSession = (id, round = 1, usedQIds = new Set(), remIds = new Set()) => {
   if (!id) return;
   try {
-    localStorage.setItem(getQuizSessionKey(id), JSON.stringify({
+    localStorage.setItem(getQuizSessionKey(id, round), JSON.stringify({
       usedQuestionIds: Array.from(usedQIds),
       removedIds: Array.from(remIds)
     }));
@@ -148,19 +153,73 @@ function StylishDurationDropdown({ value, onChange, disabled }) {
   );
 }
 
-export default function QuizPlayPage() {
+class QuizPlayErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('QuizPlay caught an error:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="max-w-xl mx-auto my-12 p-8 rounded-3xl bg-white dark:bg-[#161925] border border-red-200 dark:border-red-900/50 shadow-xl text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 mx-auto flex items-center justify-center font-bold text-lg">
+            ⚠️
+          </div>
+          <h2 className="text-lg font-bold text-gray-900 dark:text-white">Something went wrong on the quiz arena</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+            {this.state.error?.message || 'An unexpected error occurred while rendering the quiz stage.'}
+          </p>
+          <div className="pt-2 flex items-center justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="px-4 py-2 rounded-xl bg-[#635BFF] text-white text-xs font-bold hover:bg-[#5145E5] transition-all cursor-pointer shadow-md shadow-[#635BFF]/25"
+            >
+              Try Again
+            </button>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-700 transition-all cursor-pointer"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function QuizPlayPageContent() {
   const { quizId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [quiz, setQuiz] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('participants'); // 'participants' | 'wheel' | 'scoreboard'
 
   // Master Participants State (all enrolled students with cumulative marks)
   const [allParticipants, setAllParticipants] = useState([]);
+  const [activeTab, setActiveTab] = useState(location.state?.tab || 'participants'); // 'participants' | 'wheel' | 'scoreboard'
+
+  // If there are no participants yet and we finished loading, keep user on participants tab
+  useEffect(() => {
+    if (!loading && allParticipants.length === 0 && activeTab !== 'participants') {
+      setActiveTab('participants');
+    }
+  }, [loading, allParticipants.length, activeTab]);
+
   const [removedIds, setRemovedIds] = useState(new Set()); // IDs of students who have completed turn (Fair Turn)
   const [scoreboardSearch, setScoreboardSearch] = useState('');
+  const [quickName, setQuickName] = useState('');
 
   // Wheel State
   const wheelRef = useRef(null);
@@ -182,21 +241,25 @@ export default function QuizPlayPage() {
   const [timeLeft, setTimeLeft] = useState(null);
   const [turnHistory, setTurnHistory] = useState([]);
 
+  // Round Information
+  const currentRound = (location.state?.round ? Number(location.state.round) : null) || quiz?.currentRound || 1;
+  const activeRoundObj = (Array.isArray(quiz?.rounds) ? quiz.rounds.find(r => r.roundNumber === currentRound) : null) || { questions: quiz?.questions || [] };
+
   // Questions and pool
-  const questionsList = quiz?.questions || [];
-  const availableQuestions = questionsList.filter(q => !usedQuestionIds.has(q.id));
+  const questionsList = Array.isArray(activeRoundObj?.questions) ? activeRoundObj.questions : (Array.isArray(quiz?.questions) ? quiz.questions : []);
+  const availableQuestions = questionsList.filter(q => q && !usedQuestionIds.has(q.id));
+  const currentQuestionToAsk = availableQuestions.length > 0 ? availableQuestions[0] : (questionsList.length > 0 ? questionsList[0] : null);
 
   // Eligible participants currently on the wheel
-  const eligibleParticipants = fairTurn
-    ? allParticipants.filter(p => !removedIds.has(p.id))
-    : allParticipants;
+  const eligibleParticipants = Array.isArray(allParticipants)
+    ? (fairTurn ? allParticipants.filter(p => p && !removedIds.has(p.id)) : allParticipants.filter(Boolean))
+    : [];
 
-  // Complete Quiz check: true if all questions are used, or eligible participants is 0, or all students finished
-  const isQuizCompleted = allParticipants.length > 0 && (
+  // Complete Round check: true if all questions are used, or eligible participants is 0 (all turns in round complete)
+  const isQuizCompleted = allParticipants.length > 0 && questionsList.length > 0 && (
     eligibleParticipants.length === 0 ||
-    (questionsList.length > 0 && availableQuestions.length === 0) ||
-    allParticipants.every(p => (Number(p.turns) || 0) > 0) ||
-    (questionsList.length > 0 && usedQuestionIds.size >= questionsList.length)
+    availableQuestions.length === 0 ||
+    usedQuestionIds.size >= questionsList.length
   );
 
   // Prevent background page scrolling when the Question Turn modal is open
@@ -226,6 +289,7 @@ export default function QuizPlayPage() {
           return;
         }
 
+        const activeRoundNum = (location.state?.round ? Number(location.state.round) : null) || data.currentRound || 1;
         setQuiz(data);
         const list = Array.isArray(data.participants) ? data.participants : [];
         const initialized = list.map(p => ({
@@ -236,30 +300,24 @@ export default function QuizPlayPage() {
         }));
         setAllParticipants(initialized);
 
-        // Restore saved quiz session state (used questions and removed student turns)
-        const savedSession = loadSavedQuizSession(data.id);
-        const completedStudentIds = initialized
-          .filter(p => (Number(p.turns) || 0) > 0)
-          .map(p => p.id);
+        // Restore saved quiz session state for this round
+        const savedSession = loadSavedQuizSession(data.id, activeRoundNum);
+        const restoredRemovedIds = new Set(savedSession.removedIds);
 
-        const restoredRemovedIds = new Set([...savedSession.removedIds, ...completedStudentIds]);
-
-        const qList = Array.isArray(data.questions) ? data.questions : [];
+        const currentRoundObj = (Array.isArray(data.rounds) ? data.rounds.find(r => r.roundNumber === activeRoundNum) : null) || { questions: data.questions || [] };
+        const qList = Array.isArray(currentRoundObj.questions) ? currentRoundObj.questions : (Array.isArray(data.questions) ? data.questions : []);
         let restoredUsedQIds = new Set(savedSession.usedQuestionIds);
 
-        const allStudentsTurned = initialized.length > 0 && initialized.every(p => (Number(p.turns) || 0) > 0);
-        const totalTurns = initialized.reduce((sum, p) => sum + (Number(p.turns) || 0), 0);
-
-        if (qList.length > 0 && (restoredUsedQIds.size >= qList.length || (totalTurns >= qList.length && restoredUsedQIds.size === 0) || allStudentsTurned)) {
+        if (qList.length > 0 && restoredUsedQIds.size >= qList.length) {
           restoredUsedQIds = new Set(qList.map(q => q.id));
         }
 
         setRemovedIds(restoredRemovedIds);
         setUsedQuestionIds(restoredUsedQIds);
-        saveQuizSession(data.id, restoredUsedQIds, restoredRemovedIds);
+        saveQuizSession(data.id, activeRoundNum, restoredUsedQIds, restoredRemovedIds);
 
         if (data.name) {
-          document.title = `${data.name} - Play | Eventora`;
+          document.title = `${data.name} (Round ${activeRoundNum}) - Play | Eventora`;
         }
       } catch (err) {
         console.error('Failed to load quiz for play:', err);
@@ -271,6 +329,65 @@ export default function QuizPlayPage() {
     loadQuiz();
     return () => { isCancelled = true; };
   }, [quizId]);
+
+  // Proceed to Next Round handler
+  const handleProceedToNextRound = async () => {
+    if (!quiz?.id) return;
+    const nextRoundNum = currentRound + 1;
+    const existingRounds = Array.isArray(quiz.rounds) ? [...quiz.rounds] : [];
+
+    // Mark current round as completed
+    const updatedRounds = existingRounds.map(r => {
+      if (r.roundNumber === currentRound) {
+        return { ...r, isCompleted: true };
+      }
+      return r;
+    });
+
+    if (!updatedRounds.some(r => r.roundNumber === nextRoundNum)) {
+      updatedRounds.push({
+        roundNumber: nextRoundNum,
+        quizType: null,
+        isTypeConfirmed: false,
+        questions: [],
+        isCompleted: false
+      });
+    }
+
+    try {
+      localStorage.removeItem(getQuizSessionKey(quiz.id, nextRoundNum));
+    } catch (_) {}
+
+    await quizService.updateQuiz(quiz.id, {
+      currentRound: nextRoundNum,
+      rounds: updatedRounds,
+      questions: [],
+      participants: allParticipants
+    });
+
+    const slug = slugify(quiz.name) || quiz.id;
+    navigate(`/app/quiz/${slug}`, { state: { quizId: quiz.id, round: nextRoundNum } });
+  };
+
+  // Finish Quiz handler
+  const handleFinishQuiz = async () => {
+    if (!quiz?.id) return;
+    try {
+      await quizService.updateQuiz(quiz.id, {
+        isFinished: true,
+        participants: allParticipants
+      });
+      setQuiz(prev => ({ ...prev, isFinished: true }));
+      confetti({
+        particleCount: 130,
+        spread: 100,
+        origin: { y: 0.6 }
+      });
+      playVictorySound();
+    } catch (err) {
+      console.error('Failed to finish quiz:', err);
+    }
+  };
 
   // Save participants updates helper
   const persistParticipants = useCallback(async (updated) => {
@@ -331,6 +448,25 @@ export default function QuizPlayPage() {
     }));
     const nextList = [...allParticipants, ...formatted];
     persistParticipants(nextList);
+  };
+
+  // Quick single add from Wheel page
+  const handleQuickAdd = (e) => {
+    if (e) e.preventDefault();
+    if (!quickName.trim()) return;
+    handleAddParticipant({ name: quickName.trim() });
+    setQuickName('');
+  };
+
+  // Seed 3 demo students from Wheel page
+  const handleAddSampleParticipants = () => {
+    const samples = [
+      { name: 'Student 1' },
+      { name: 'Student 2' },
+      { name: 'Student 3' },
+      { name: 'Student 4' }
+    ];
+    handleBulkAdd(samples);
   };
 
   // Delete participant
@@ -479,7 +615,7 @@ export default function QuizPlayPage() {
       setRemovedIds(nextRemoved);
     }
 
-    saveQuizSession(quiz?.id, nextUsed, nextRemoved);
+    saveQuizSession(quiz?.id, currentRound, nextUsed, nextRemoved);
 
     // Record in history
     setTurnHistory(prev => [
@@ -575,7 +711,7 @@ export default function QuizPlayPage() {
       setRemovedIds(nextRemoved);
     }
 
-    saveQuizSession(quiz?.id, nextUsed, nextRemoved);
+    saveQuizSession(quiz?.id, currentRound, nextUsed, nextRemoved);
 
     // Record in history
     setTurnHistory(prev => [
@@ -649,10 +785,13 @@ export default function QuizPlayPage() {
             <span className="text-gray-900 dark:text-white font-bold">Participants & Wheel</span>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white tracking-tight">
               {quiz.name}
             </h1>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
+              Round {currentRound}
+            </span>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
               {typeDef.name}
             </span>
@@ -663,6 +802,7 @@ export default function QuizPlayPage() {
         <div className="flex items-center gap-2">
           <Link
             to={`/app/quiz/${quizSlug}`}
+            state={{ quizId: quiz.id, round: currentRound }}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -689,16 +829,25 @@ export default function QuizPlayPage() {
           </span>
         </button>
 
+        {/* Spin Wheel Tab Button (Locked if no participants) */}
         <button
           type="button"
-          onClick={() => setActiveTab('wheel')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'wheel'
-              ? 'bg-[#635BFF] text-white shadow-xs'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+          disabled={allParticipants.length === 0}
+          onClick={() => allParticipants.length > 0 && setActiveTab('wheel')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            allParticipants.length === 0
+              ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
+              : activeTab === 'wheel'
+              ? 'bg-[#635BFF] text-white shadow-xs cursor-pointer'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
           }`}
+          title={allParticipants.length === 0 ? 'Add participants first to unlock the wheel' : 'Spin Wheel'}
         >
-          <RotateCw className="w-4 h-4" />
+          {allParticipants.length === 0 ? (
+            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          ) : (
+            <RotateCw className="w-4 h-4 shrink-0" />
+          )}
           <span>Spin Wheel</span>
           {eligibleParticipants.length > 0 && fairTurn && (
             <span className="px-1.5 py-0.2 rounded-md bg-white/20 text-[10px] font-black">
@@ -707,16 +856,25 @@ export default function QuizPlayPage() {
           )}
         </button>
 
+        {/* Results / Total Marks Tab Button (Locked if no participants) */}
         <button
           type="button"
-          onClick={() => setActiveTab('scoreboard')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'scoreboard'
-              ? 'bg-amber-500 text-white shadow-xs'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+          disabled={allParticipants.length === 0}
+          onClick={() => allParticipants.length > 0 && setActiveTab('scoreboard')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+            allParticipants.length === 0
+              ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
+              : activeTab === 'scoreboard'
+              ? 'bg-amber-500 text-white shadow-xs cursor-pointer'
+              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
           }`}
+          title={allParticipants.length === 0 ? 'Add participants first to unlock results' : 'Total Marks & Results'}
         >
-          <Trophy className="w-4 h-4" />
+          {allParticipants.length === 0 ? (
+            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+          ) : (
+            <Trophy className="w-4 h-4 shrink-0" />
+          )}
           <span>Total Marks</span>
         </button>
       </div>
@@ -741,10 +899,10 @@ export default function QuizPlayPage() {
               <button
                 type="button"
                 onClick={() => setActiveTab('wheel')}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold transition-colors cursor-pointer shadow-md shadow-[#635BFF]/20"
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-[#635BFF]/25"
               >
-                <span>Ready to Spin Wheel</span>
-                <RotateCw className="w-3.5 h-3.5" />
+                <span>Next: Spin Wheel</span>
+                <ArrowRight className="w-4 h-4" />
               </button>
             </div>
           )}
@@ -754,27 +912,7 @@ export default function QuizPlayPage() {
       {/* ===================== TAB 2: SPIN WHEEL ===================== */}
       {activeTab === 'wheel' && (
         <div className="space-y-6 animate-in fade-in duration-200">
-          {allParticipants.length === 0 ? (
-            <div className="text-center py-20 px-4 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-4">
-              <RotateCw className="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto" />
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-gray-900 dark:text-white">
-                  Add participants first
-                </h3>
-                <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
-                  The wheel requires at least one participant to spin and choose who answers each question.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setActiveTab('participants')}
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Go to Participants Tab</span>
-              </button>
-            </div>
-          ) : isQuizCompleted ? (
+          {isQuizCompleted ? (
             /* Quiz Completed Stage when all participants completed turn OR all questions answered */
             <div className="max-w-xl mx-auto text-center py-14 px-6 rounded-3xl bg-gradient-to-b from-[#181B2A] to-[#12141F] border border-gray-800 space-y-6 shadow-2xl animate-in zoom-in-95 duration-200">
               <div className="w-20 h-20 rounded-3xl bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center shadow-lg shadow-amber-500/20">
@@ -783,15 +921,15 @@ export default function QuizPlayPage() {
 
               <div className="space-y-2">
                 <div className="inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-black uppercase tracking-wider">
-                  {questionsList.length > 0 && availableQuestions.length === 0 ? 'All Questions Answered' : 'All Turns Completed'}
+                  {quiz?.isFinished ? 'Quiz Concluded' : `Round ${currentRound} Completed`}
                 </div>
                 <h3 className="text-2xl font-black text-white">
-                  Quiz Completed!
+                  {quiz?.isFinished ? 'Quiz Completed!' : `Round ${currentRound} Completed!`}
                 </h3>
                 <p className="text-xs text-gray-400 max-w-md mx-auto">
-                  {questionsList.length > 0 && availableQuestions.length === 0
-                    ? `All ${questionsList.length} questions in this quiz have been answered. You can now review the total marks for each student.`
-                    : `All ${allParticipants.length} students have taken their turn on the wheel. You can now review the total marks for each student.`}
+                  {quiz?.isFinished
+                    ? 'All rounds have concluded! You can review the final scores and rankings for each student.'
+                    : `All ${questionsList.length} questions in Round ${currentRound} have been answered. You can now review total marks, proceed to Round ${currentRound + 1}, or finish the quiz.`}
                 </p>
               </div>
 
@@ -812,8 +950,8 @@ export default function QuizPlayPage() {
                 })()}
               </div>
 
-              {/* Buttons */}
-              <div className="flex items-center justify-center pt-3">
+              {/* Buttons: 1) View Total Marks, 2) Proceed to Round N+1, 3) Finish Quiz */}
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
                 <button
                   type="button"
                   onClick={() => setActiveTab('scoreboard')}
@@ -822,15 +960,68 @@ export default function QuizPlayPage() {
                   <Trophy className="w-4 h-4" />
                   <span>View Total Marks</span>
                 </button>
+
+                {!quiz?.isFinished && (
+                  <button
+                    type="button"
+                    onClick={handleProceedToNextRound}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-[#635BFF]/30 cursor-pointer"
+                  >
+                    <span>Proceed to Round {currentRound + 1}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )}
+
+                {!quiz?.isFinished && (
+                  <button
+                    type="button"
+                    onClick={handleFinishQuiz}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black uppercase tracking-wider transition-all shadow-lg shadow-rose-600/30 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Finish Quiz</span>
+                  </button>
+                )}
               </div>
             </div>
           ) : (
-            <div className="max-w-xl mx-auto flex flex-col items-center space-y-6">
+            <div className="max-w-2xl mx-auto flex flex-col items-center space-y-6">
+              {questionsList.length === 0 && (
+                <div className="w-full p-6 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-center space-y-3">
+                  <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+                  <h3 className="text-base font-bold text-amber-900 dark:text-amber-200">
+                    No questions added for Round {currentRound} yet
+                  </h3>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 max-w-sm mx-auto">
+                    Set up questions for Round {currentRound} first, then come back here to spin the wheel.
+                  </p>
+                  <Link
+                    to={`/app/quiz/${quizSlug}`}
+                    state={{ quizId: quiz.id, round: currentRound }}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Setup Questions for Round {currentRound}</span>
+                  </Link>
+                </div>
+              )}
+
               {/* Wheel Container */}
               <div className="relative w-full max-w-md aspect-square flex items-center justify-center p-3 rounded-3xl bg-gradient-to-b from-[#181B2A] to-[#12141F] border border-gray-800 shadow-2xl overflow-hidden">
                 <WheelCanvas
                   ref={wheelRef}
-                  participants={eligibleParticipants}
+                  participants={
+                    eligibleParticipants.length > 0
+                      ? eligibleParticipants
+                      : allParticipants.length > 0
+                      ? allParticipants
+                      : [
+                          { id: 'demo1', name: 'Student 1' },
+                          { id: 'demo2', name: 'Student 2' },
+                          { id: 'demo3', name: 'Student 3' },
+                          { id: 'demo4', name: 'Student 4' }
+                        ]
+                  }
                   duration={duration}
                   soundEnabled={soundEnabled}
                   isPaused={isQuestionModalOpen}
@@ -839,6 +1030,42 @@ export default function QuizPlayPage() {
                   className="w-full h-full"
                 />
               </div>
+
+              {/* Quick Add Participant Box when no participants enrolled */}
+              {allParticipants.length === 0 && (
+                <div className="w-full max-w-md p-4 rounded-2xl bg-white dark:bg-[#161925] border border-violet-200 dark:border-violet-900/50 shadow-md space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-gray-900 dark:text-white">Add Participants to Spin</h4>
+                      <p className="text-[11px] text-gray-400">Enter student names to populate the wheel slices.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddSampleParticipants}
+                      className="text-[11px] font-bold text-[#635BFF] dark:text-[#8881FF] hover:underline cursor-pointer"
+                    >
+                      + Add Demo Students
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleQuickAdd} className="flex gap-2">
+                    <input
+                      type="text"
+                      value={quickName}
+                      onChange={(e) => setQuickName(e.target.value)}
+                      placeholder="Student or team name..."
+                      className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-xs font-semibold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!quickName.trim()}
+                      className="px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                    >
+                      Add
+                    </button>
+                  </form>
+                </div>
+              )}
 
               {/* Slices / Remaining info & Scoreboard shortcut */}
               <div className="w-full max-w-md flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-1">
@@ -860,11 +1087,19 @@ export default function QuizPlayPage() {
                 <button
                   type="button"
                   onClick={handleSpinWheel}
-                  disabled={isSpinning || eligibleParticipants.length === 0}
+                  disabled={isSpinning || eligibleParticipants.length === 0 || !currentQuestionToAsk}
                   className="w-full py-3.5 rounded-2xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-base font-black uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all shadow-lg shadow-[#635BFF]/30 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCw className={`w-5 h-5 ${isSpinning ? 'animate-spin' : ''}`} />
-                  <span>{isSpinning ? 'Spinning...' : 'Spin Wheel'}</span>
+                  <span>
+                    {isSpinning
+                      ? 'Spinning...'
+                      : eligibleParticipants.length === 0
+                      ? 'Add Participants to Spin'
+                      : !currentQuestionToAsk
+                      ? 'All Round Questions Answered'
+                      : 'Spin Wheel'}
+                  </span>
                 </button>
 
                 {/* Wheel Settings Toolbar */}
@@ -918,43 +1153,43 @@ export default function QuizPlayPage() {
                     </button>
                   </div>
                 </div>
-              </div>
 
-              {/* Turn History Card */}
-              {turnHistory.length > 0 && (
-                <div className="w-full max-w-md p-5 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-2.5 shadow-xs">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
-                      Recent Turns
-                    </h4>
-                    <span className="text-[10px] text-gray-400 font-bold">
-                      {turnHistory.length} turns recorded
-                    </span>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
-                    {turnHistory.map(th => (
-                      <div
-                        key={th.id}
-                        className="p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-[#12141F] text-xs space-y-1"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-gray-900 dark:text-white">{th.participantName}</span>
-                          <span className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
-                            th.isCorrect
-                              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
-                              : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
-                          }`}>
-                            {th.isCorrect ? `+${th.marksEarned} pts` : '0 pts'}
-                          </span>
+                {/* Turn History Card */}
+                {turnHistory.length > 0 && (
+                  <div className="w-full max-w-md p-5 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-2.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wider">
+                        Recent Turns
+                      </h4>
+                      <span className="text-[10px] text-gray-400 font-bold">
+                        {turnHistory.length} turns recorded
+                      </span>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+                      {turnHistory.map(th => (
+                        <div
+                          key={th.id}
+                          className="p-2.5 rounded-xl border border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-[#12141F] text-xs space-y-1"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-gray-900 dark:text-white">{th.participantName}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[10px] font-black ${
+                              th.isCorrect
+                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300'
+                            }`}>
+                              {th.isCorrect ? `+${th.marksEarned} pts` : '0 pts'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
+                            Q{th.questionNumber}: {th.questionText}
+                          </p>
                         </div>
-                        <p className="text-[11px] text-gray-500 dark:text-gray-400 truncate">
-                          Q{th.questionNumber}: {th.questionText}
-                        </p>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -999,27 +1234,6 @@ export default function QuizPlayPage() {
             </div>
           </div>
 
-          {/* Quick Metrics */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-1 shadow-xs">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
-                Total Students
-              </span>
-              <p className="text-xl font-black text-gray-900 dark:text-white">
-                {allParticipants.length}
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-1 shadow-xs">
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
-                Turns Completed
-              </span>
-              <p className="text-xl font-black text-violet-600 dark:text-violet-400">
-                {removedIds.size} <span className="text-xs text-gray-400 font-normal">/ {allParticipants.length}</span>
-              </p>
-            </div>
-          </div>
-
           {/* Student Rankings Table */}
           <div className="rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 overflow-hidden shadow-xs space-y-3 p-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100 dark:border-gray-800">
@@ -1053,7 +1267,6 @@ export default function QuizPlayPage() {
                       <th className="py-3 px-3">Student Name</th>
                       <th className="py-3 px-3 text-center">Questions</th>
                       <th className="py-3 px-3 text-center">Correct</th>
-                      <th className="py-3 px-3 text-center">Status</th>
                       <th className="py-3 px-3 text-right">Total Marks</th>
                     </tr>
                   </thead>
@@ -1066,7 +1279,7 @@ export default function QuizPlayPage() {
                       if (filtered.length === 0) {
                         return (
                           <tr>
-                            <td colSpan="6" className="py-8 text-center text-gray-400">
+                            <td colSpan="5" className="py-8 text-center text-gray-400">
                               No students match "{scoreboardSearch}"
                             </td>
                           </tr>
@@ -1074,7 +1287,6 @@ export default function QuizPlayPage() {
                       }
 
                       return filtered.map((p, idx) => {
-                        const isCompleted = removedIds.has(p.id) || (p.turns || 0) > 0;
                         const rankBadges = ['🥇', '🥈', '🥉'];
                         const rankColor = idx === 0 ? 'text-amber-500 font-black' : idx === 1 ? 'text-slate-400 font-black' : idx === 2 ? 'text-amber-700 font-black' : 'text-gray-400 font-bold';
 
@@ -1093,19 +1305,6 @@ export default function QuizPlayPage() {
                             </td>
                             <td className="py-3 px-3 text-center text-emerald-600 dark:text-emerald-400 font-semibold">
                               {p.correct || 0}
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              {isCompleted ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400">
-                                  <Check className="w-3 h-3" />
-                                  <span>Completed</span>
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                                  <Clock className="w-3 h-3" />
-                                  <span>In Wheel</span>
-                                </span>
-                              )}
                             </td>
                             <td className="py-3 px-3 text-right">
                               <span className="inline-block px-3 py-1 rounded-xl bg-violet-100 dark:bg-violet-950/70 text-[#635BFF] dark:text-[#A59EFF] font-black text-xs">
@@ -1220,7 +1419,9 @@ export default function QuizPlayPage() {
                 <div className="space-y-2.5">
                   {(activeQuestion.options || []).map((opt, optIdx) => {
                     const isSelected = selectedOptionIdx === optIdx;
-                    const isCorrect = Boolean(opt.isCorrect);
+                    const isCorrect = typeof opt === 'object' && opt ? Boolean(opt.isCorrect) : false;
+                    const optText = typeof opt === 'string' ? opt : (opt?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`);
+                    const optKey = (typeof opt === 'object' && opt?.id) ? opt.id : `q_opt_${optIdx}`;
 
                     let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
 
@@ -1244,7 +1445,7 @@ export default function QuizPlayPage() {
 
                     return (
                       <button
-                        key={opt.id || optIdx}
+                        key={optKey}
                         type="button"
                         disabled={hasAnswered}
                         onClick={() => handleSelectOption(optIdx)}
@@ -1252,10 +1453,10 @@ export default function QuizPlayPage() {
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
-                            {OPTION_LETTERS[optIdx]}
+                            {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
                           </span>
                           <span className="text-xs font-semibold truncate">
-                            {opt.text || `Option ${optIdx + 1}`}
+                            {optText}
                           </span>
                         </div>
 
@@ -1386,6 +1587,14 @@ export default function QuizPlayPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function QuizPlayPage() {
+  return (
+    <QuizPlayErrorBoundary>
+      <QuizPlayPageContent />
+    </QuizPlayErrorBoundary>
   );
 }
 

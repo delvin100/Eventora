@@ -19,11 +19,13 @@ import {
   Hash,
   X,
   FileCheck,
-  Clock
+  Clock,
+  Play
 } from 'lucide-react';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import StylishQuizTypeDropdown from '../components/quiz/StylishQuizTypeDropdown';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
@@ -105,6 +107,11 @@ export default function QuizWorkspacePage() {
   const [questions, setQuestions] = useState([]);
   const [questionToDeleteIdx, setQuestionToDeleteIdx] = useState(null);
 
+  // Round Management
+  const [currentRound, setCurrentRound] = useState(1);
+  const [isTypeConfirmed, setIsTypeConfirmed] = useState(false);
+  const [selectedRoundType, setSelectedRoundType] = useState('');
+
   // Status notification
   const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
 
@@ -135,9 +142,41 @@ export default function QuizWorkspacePage() {
           setDefaultTimeUnit(data.defaultTimeUnit);
         }
 
-        const rawQuestions = Array.isArray(data.questions) && data.questions.length > 0
-          ? data.questions
+        const activeRoundNum = (location.state?.round ? Number(location.state.round) : null) || data.currentRound || 1;
+        setCurrentRound(activeRoundNum);
+
+        const roundsList = Array.isArray(data.rounds) && data.rounds.length > 0
+          ? data.rounds
           : [
+              {
+                roundNumber: 1,
+                quizType: data.quizType || null,
+                isTypeConfirmed: Boolean(data.quizType && data.questions?.length > 0),
+                questions: data.questions || [],
+                isCompleted: false
+              }
+            ];
+
+        const activeRound = roundsList.find(r => r.roundNumber === activeRoundNum) || {
+          roundNumber: activeRoundNum,
+          quizType: null,
+          isTypeConfirmed: false,
+          questions: [],
+          isCompleted: false
+        };
+
+        const hasConfirmedType = Boolean(
+          activeRound.isTypeConfirmed ||
+          (activeRound.quizType && activeRound.questions && activeRound.questions.length > 0 && activeRound.questions.some(q => q.text?.trim() || q.options?.some(o => o.text?.trim())))
+        );
+
+        setIsTypeConfirmed(hasConfirmedType);
+        setSelectedRoundType(activeRound.quizType || '');
+
+        let rawQuestions = Array.isArray(activeRound.questions) && activeRound.questions.length > 0
+          ? activeRound.questions
+          : hasConfirmedType
+          ? [
               {
                 id: 'q_' + Date.now(),
                 text: '',
@@ -152,7 +191,8 @@ export default function QuizWorkspacePage() {
                   { id: 'opt_4', text: '', isCorrect: false }
                 ]
               }
-            ];
+            ]
+          : [];
 
         const initialQuestions = rawQuestions.map(q => {
           const unit = q.timeUnit || 'sec';
@@ -181,7 +221,7 @@ export default function QuizWorkspacePage() {
           const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(quizId);
           if (isUUID && slug) {
             const newPath = location.pathname.replace(quizId, slug);
-            navigate(newPath, { replace: true, state: { ...location.state, quizId: data.id } });
+            navigate(newPath, { replace: true, state: { ...location.state, quizId: data.id, round: activeRoundNum } });
           }
         }
       } catch (err) {
@@ -201,23 +241,134 @@ export default function QuizWorkspacePage() {
   // Compute Total Marks dynamically
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
 
+  // Confirm Round Quiz Type handler
+  const handleConfirmRoundType = async () => {
+    if (!selectedRoundType) {
+      setStatusMsg({ type: 'error', text: 'Please select a quiz type first.' });
+      setTimeout(() => setStatusMsg({ type: '', text: '' }), 3000);
+      return;
+    }
+
+    const targetQuizId = quiz?.id || location.state?.quizId || quizId;
+
+    const defaultQ = questions.length > 0 ? questions : [
+      {
+        id: 'q_' + Date.now(),
+        text: '',
+        marks: Number(defaultMarks) || 1,
+        timeLimit: null,
+        timeValue: '',
+        timeUnit: 'sec',
+        options: [
+          { id: 'opt_1', text: '', isCorrect: true },
+          { id: 'opt_2', text: '', isCorrect: false },
+          { id: 'opt_3', text: '', isCorrect: false },
+          { id: 'opt_4', text: '', isCorrect: false }
+        ]
+      }
+    ];
+
+    const existingRounds = Array.isArray(quiz?.rounds) ? [...quiz.rounds] : [];
+    let updatedRounds = existingRounds.map(r => {
+      if (r.roundNumber === currentRound) {
+        return {
+          ...r,
+          quizType: selectedRoundType,
+          isTypeConfirmed: true,
+          questions: r.questions && r.questions.length > 0 ? r.questions : defaultQ
+        };
+      }
+      return r;
+    });
+
+    if (!updatedRounds.some(r => r.roundNumber === currentRound)) {
+      updatedRounds.push({
+        roundNumber: currentRound,
+        quizType: selectedRoundType,
+        isTypeConfirmed: true,
+        questions: defaultQ,
+        isCompleted: false
+      });
+    }
+
+    // Immediately unlock question screen so user sees Question 1 right away
+    setQuestions(defaultQ);
+    setIsTypeConfirmed(true);
+    setQuiz(prev => ({
+      ...(prev || {}),
+      id: targetQuizId,
+      name: prev?.name || quizName || 'Untitled Quiz',
+      quizType: selectedRoundType,
+      currentRound,
+      rounds: updatedRounds
+    }));
+
+    if (targetQuizId) {
+      try {
+        setSaving(true);
+        await quizService.updateQuiz(targetQuizId, {
+          quizType: selectedRoundType,
+          currentRound,
+          rounds: updatedRounds,
+          questions: defaultQ
+        });
+
+        setStatusMsg({
+          type: 'success',
+          text: `Round ${currentRound} is ready! You can now add questions.`
+        });
+        setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
+      } catch (err) {
+        console.error('Failed to confirm round type in backend:', err);
+      } finally {
+        setSaving(false);
+      }
+    }
+  };
+
   // Save Quiz handler
   const handleSaveQuiz = async () => {
     if (!quiz?.id) return;
     try {
       setSaving(true);
+      const existingRounds = Array.isArray(quiz.rounds) ? [...quiz.rounds] : [];
+      let updatedRounds = existingRounds.map(r => {
+        if (r.roundNumber === currentRound) {
+          return {
+            ...r,
+            quizType: selectedRoundType,
+            isTypeConfirmed: true,
+            questions
+          };
+        }
+        return r;
+      });
+
+      if (!updatedRounds.some(r => r.roundNumber === currentRound)) {
+        updatedRounds.push({
+          roundNumber: currentRound,
+          quizType: selectedRoundType,
+          isTypeConfirmed: true,
+          questions,
+          isCompleted: false
+        });
+      }
+
       await quizService.updateQuiz(quiz.id, {
         name: quizName,
         description: quizDescription,
+        quizType: selectedRoundType,
         defaultMarks: Number(defaultMarks) || 1,
         defaultTimeValue,
         defaultTimeUnit,
+        currentRound,
+        rounds: updatedRounds,
         questions
       });
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-      setStatusMsg({ type: 'success', text: 'All questions and quiz configuration saved!' });
+      setStatusMsg({ type: 'success', text: `Round ${currentRound} questions and quiz configuration saved!` });
       setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
 
       // Keep title and URL in sync if name changed
@@ -225,7 +376,7 @@ export default function QuizWorkspacePage() {
         document.title = `${quizName} | Eventora Quiz`;
         const slug = slugify(quizName);
         if (slug && quizId !== slug) {
-          navigate(`/app/quiz/${slug}`, { replace: true, state: { ...location.state, quizId: quiz.id } });
+          navigate(`/app/quiz/${slug}`, { replace: true, state: { ...location.state, quizId: quiz.id, round: currentRound } });
         }
       }
     } catch (err) {
@@ -238,23 +389,53 @@ export default function QuizWorkspacePage() {
 
   // Next Step handler: automatically saves questions and navigates to the Participants & Wheel page
   const handleGoToNext = async () => {
-    if (!quiz?.id) return;
+    const targetQuizId = quiz?.id || location.state?.quizId || quizId;
+    if (!targetQuizId) return;
+
     try {
       setSaving(true);
-      await quizService.updateQuiz(quiz.id, {
+      const existingRounds = Array.isArray(quiz?.rounds) ? [...quiz.rounds] : [];
+      let updatedRounds = existingRounds.map(r => {
+        if (r.roundNumber === currentRound) {
+          return {
+            ...r,
+            quizType: selectedRoundType,
+            isTypeConfirmed: true,
+            questions
+          };
+        }
+        return r;
+      });
+
+      if (!updatedRounds.some(r => r.roundNumber === currentRound)) {
+        updatedRounds.push({
+          roundNumber: currentRound,
+          quizType: selectedRoundType,
+          isTypeConfirmed: true,
+          questions,
+          isCompleted: false
+        });
+      }
+
+      await quizService.updateQuiz(targetQuizId, {
         name: quizName,
         description: quizDescription,
+        quizType: selectedRoundType,
         defaultMarks: Number(defaultMarks) || 1,
         defaultTimeValue,
         defaultTimeUnit,
+        currentRound,
+        rounds: updatedRounds,
         questions
       });
 
-      const slug = slugify(quizName) || quiz.id;
-      navigate(`/app/quiz/${slug}/play`, { state: { quizId: quiz.id } });
+      const slug = slugify(quizName) || targetQuizId;
+      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: currentRound, tab: 'participants' } });
     } catch (err) {
       console.error('Auto-save before next step failed:', err);
-      setStatusMsg({ type: 'error', text: 'Failed to save before navigating: ' + (err.message || 'Unknown error') });
+      // Still navigate so user is never stuck
+      const slug = slugify(quizName) || targetQuizId;
+      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: currentRound, tab: 'participants' } });
     } finally {
       setSaving(false);
     }
@@ -533,7 +714,7 @@ export default function QuizWorkspacePage() {
     );
   }
 
-  const typeDef = QUIZ_TYPES.find(t => t.id === quiz.quizType) || QUIZ_TYPES[0];
+  const typeDef = QUIZ_TYPES.find(t => t.id === selectedRoundType) || QUIZ_TYPES.find(t => t.id === quiz.quizType) || QUIZ_TYPES[0];
 
   return (
     <div className="space-y-6 pb-20">
@@ -548,6 +729,8 @@ export default function QuizWorkspacePage() {
         </Link>
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <span className="text-gray-900 dark:text-white font-bold truncate max-w-xs">{quizName}</span>
+        <span className="text-gray-300 dark:text-gray-700">/</span>
+        <span className="text-[#635BFF] font-bold">Round {currentRound}</span>
       </nav>
 
       {/* Status banner */}
@@ -563,17 +746,74 @@ export default function QuizWorkspacePage() {
         </div>
       )}
 
-      {/* Quiz Master Header Card */}
-      <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
-        <div className="space-y-2 flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
-              {typeDef.name} (MCQ)
-            </span>
-            <span className="text-xs text-gray-400">
-              {typeDef.description}
-            </span>
+      {/* Round 1 / Round N Type Selection view (shown before confirming round type) */}
+      {!isTypeConfirmed ? (
+        <div className="min-h-[calc(100vh-16rem)] flex items-center justify-center py-6 px-2">
+          <div className="max-w-xl w-full p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xl space-y-6 animate-in zoom-in-95 duration-200">
+            <div className="text-center space-y-3">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-100 dark:bg-violet-950/70 text-[#635BFF] dark:text-[#8881FF] text-xs font-black uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Round {currentRound}</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white">
+                Round {currentRound}: Select Quiz Type
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto">
+                Choose the question format for Round {currentRound}. Once confirmed, you can add questions, customize options, and set marks.
+              </p>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                Quiz Type
+              </label>
+              <StylishQuizTypeDropdown
+                selectedTypeId={selectedRoundType}
+                onChange={setSelectedRoundType}
+              />
+            </div>
+
+            <div className="pt-3">
+              <button
+                type="button"
+                onClick={handleConfirmRoundType}
+                disabled={saving || !selectedRoundType}
+                className={`w-full py-3.5 px-6 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all ${
+                  !selectedRoundType
+                    ? 'bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none'
+                    : 'bg-[#635BFF] hover:bg-[#5145E5] text-white shadow-[#635BFF]/30 cursor-pointer'
+                }`}
+              >
+                <span>{saving ? 'Setting up Round...' : `Confirm & Setup Round ${currentRound}`}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
+        </div>
+      ) : (
+        <>
+          {/* Quiz Master Header Card */}
+          <div className="p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
+            <div className="space-y-2 flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
+                  Round {currentRound}
+                </span>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
+                  {typeDef.name} (MCQ)
+                </span>
+                <span className="text-xs text-gray-400">
+                  {typeDef.description}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsTypeConfirmed(false)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-violet-50 hover:bg-violet-100 dark:bg-violet-950/60 dark:hover:bg-violet-900/60 text-[#635BFF] dark:text-[#8881FF] border border-violet-200/80 dark:border-violet-800/60 transition-all cursor-pointer shadow-xs ml-1"
+                  title="Change quiz type for this round"
+                >
+                  <span>Change Type</span>
+                </button>
+              </div>
 
           <div className="flex items-center gap-3">
             <input
@@ -609,10 +849,10 @@ export default function QuizWorkspacePage() {
           <button
             onClick={handleSaveQuiz}
             disabled={saving}
-            className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50 ${
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50 ${
               saveSuccess
                 ? 'bg-emerald-600 text-white'
-                : 'bg-[#635BFF] hover:bg-[#5145E5] text-white'
+                : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700'
             }`}
           >
             {saveSuccess ? (
@@ -626,6 +866,16 @@ export default function QuizWorkspacePage() {
                 <span>{saving ? 'Saving...' : 'Save Quiz'}</span>
               </>
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleGoToNext}
+            disabled={saving}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer disabled:opacity-50"
+          >
+            <span>{saving ? 'Saving...' : 'Next'}</span>
+            <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -948,13 +1198,15 @@ export default function QuizWorkspacePage() {
             type="button"
             onClick={handleGoToNext}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 px-3.5 sm:px-4.5 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer disabled:opacity-50"
           >
             <span>{saving ? 'Saving...' : 'Next'}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+      </>
+      )}
 
       {/* Delete Question Confirmation Dialog */}
       <ConfirmDialog

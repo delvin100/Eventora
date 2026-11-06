@@ -4,15 +4,36 @@ import { slugify } from '../utils/slugUtils';
 const LOCAL_STORAGE_KEY = 'eventora_quizzes_cache';
 
 function formatQuizRecord(r) {
-  const questions = r.result_snapshot?.questions || [];
+  const currentRound = Number(r.settings?.currentRound) || 1;
+  const isFinished = Boolean(r.settings?.isFinished);
+  const rawRounds = r.settings?.rounds || r.result_snapshot?.rounds;
+  const rounds = Array.isArray(rawRounds) && rawRounds.length > 0
+    ? rawRounds
+    : [
+        {
+          roundNumber: 1,
+          quizType: r.settings?.quizType || null,
+          isTypeConfirmed: Boolean(r.settings?.quizType && (r.result_snapshot?.questions?.length > 0 || r.settings?.isTypeConfirmed)),
+          questions: r.result_snapshot?.questions || [],
+          isCompleted: false
+        }
+      ];
+
+  const activeRound = rounds.find(rnd => rnd.roundNumber === currentRound) || rounds[0];
+  const questions = activeRound?.questions || r.result_snapshot?.questions || [];
   const participants = r.result_snapshot?.participants || r.settings?.participants || [];
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
   return {
     id: r.id,
     name: r.result_name,
     description: r.settings?.description || '',
-    quizType: r.settings?.quizType || 'one_question_one_chance',
+    quizType: activeRound?.quizType || r.settings?.quizType || null,
     defaultMarks: Number(r.settings?.defaultMarks) || 1,
+    defaultTimeValue: r.settings?.defaultTimeValue ?? '',
+    defaultTimeUnit: r.settings?.defaultTimeUnit || 'sec',
+    currentRound,
+    isFinished,
+    rounds,
     questionsCount: questions.length,
     totalMarks,
     questions,
@@ -24,8 +45,44 @@ function formatQuizRecord(r) {
 
 function getLocalQuizzes(userId) {
   try {
-    const raw = localStorage.getItem(`${LOCAL_STORAGE_KEY}_${userId || 'guest'}`);
-    return raw ? JSON.parse(raw) : [];
+    const list = [];
+    if (userId) {
+      const userRaw = localStorage.getItem(`${LOCAL_STORAGE_KEY}_${userId}`);
+      if (userRaw) {
+        try { list.push(...JSON.parse(userRaw)); } catch (_) {}
+      }
+    }
+    const guestRaw = localStorage.getItem(`${LOCAL_STORAGE_KEY}_guest`);
+    if (guestRaw) {
+      try { list.push(...JSON.parse(guestRaw)); } catch (_) {}
+    }
+    const baseRaw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (baseRaw) {
+      try { list.push(...JSON.parse(baseRaw)); } catch (_) {}
+    }
+
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(LOCAL_STORAGE_KEY)) {
+          try {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed)) list.push(...parsed);
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    const map = new Map();
+    for (const q of list) {
+      if (q && q.id && !map.has(q.id)) {
+        map.set(q.id, q);
+      }
+    }
+    return Array.from(map.values());
   } catch (_) {
     return [];
   }
@@ -33,7 +90,9 @@ function getLocalQuizzes(userId) {
 
 function saveLocalQuizzes(userId, quizzes) {
   try {
-    localStorage.setItem(`${LOCAL_STORAGE_KEY}_${userId || 'guest'}`, JSON.stringify(quizzes));
+    const key = `${LOCAL_STORAGE_KEY}_${userId || 'guest'}`;
+    localStorage.setItem(key, JSON.stringify(quizzes));
+    localStorage.setItem(`${LOCAL_STORAGE_KEY}_guest`, JSON.stringify(quizzes));
   } catch (_) {}
 }
 
@@ -154,18 +213,20 @@ export const quizService = {
     // 2. Try Local Cache
     const local = getLocalQuizzes(user?.id);
     if (isUUID) {
-      const match = local.find(q => q.id === idOrSlug);
+      const match = local.find(q => q && q.id === idOrSlug);
       if (match) return match;
     }
 
     return local.find(q => {
+      if (!q) return false;
       const qSlug = slugify(q.name);
-      return qSlug === targetSlug || q.name.toLowerCase() === cleanName || q.id === idOrSlug;
-    }) || local.find(q => q.name.toLowerCase().includes(cleanName)) || null;
+      const qName = (q.name || '').toLowerCase().trim();
+      return qSlug === targetSlug || qName === cleanName || q.id === idOrSlug;
+    }) || local.find(q => q && (q.name || '').toLowerCase().includes(cleanName)) || null;
   },
 
   // Create a new quiz
-  async createQuiz({ name, description = '', quizType = 'one_question_one_chance', defaultMarks = 1 }) {
+  async createQuiz({ name, description = '', defaultMarks = 1 }) {
     const cleanName = (name || '').trim();
     if (!cleanName) throw new Error('Quiz name is required');
 
@@ -177,25 +238,25 @@ export const quizService = {
       } catch (_) {}
     }
 
-    // Initial default question for Type 1 (One Question One Chance - Multiple Choice)
-    const initialQuestions = [
+    const initialRounds = [
       {
-        id: 'q_' + Date.now(),
-        text: '',
-        marks: Number(defaultMarks) || 1,
-        options: [
-          { id: 'opt_1', text: '', isCorrect: true },
-          { id: 'opt_2', text: '', isCorrect: false },
-          { id: 'opt_3', text: '', isCorrect: false },
-          { id: 'opt_4', text: '', isCorrect: false }
-        ]
+        roundNumber: 1,
+        quizType: null,
+        isTypeConfirmed: false,
+        questions: [],
+        isCompleted: false
       }
     ];
 
     const initialSettings = {
       description: description.trim(),
-      quizType,
+      quizType: null,
       defaultMarks: Number(defaultMarks) || 1,
+      defaultTimeValue: '',
+      defaultTimeUnit: 'sec',
+      currentRound: 1,
+      isFinished: false,
+      rounds: initialRounds,
       updated_at: new Date().toISOString()
     };
 
@@ -209,7 +270,7 @@ export const quizService = {
             result_name: cleanName,
             operation_type: 'quiz',
             settings: initialSettings,
-            result_snapshot: { questions: initialQuestions }
+            result_snapshot: { questions: [], participants: [], rounds: initialRounds }
           }])
           .select()
           .single();
@@ -219,11 +280,17 @@ export const quizService = {
             id: data.id,
             name: data.result_name,
             description: description.trim(),
-            quizType,
+            quizType: null,
             defaultMarks: Number(defaultMarks) || 1,
-            questionsCount: initialQuestions.length,
-            totalMarks: Number(defaultMarks) || 1,
-            questions: initialQuestions,
+            defaultTimeValue: '',
+            defaultTimeUnit: 'sec',
+            currentRound: 1,
+            isFinished: false,
+            rounds: initialRounds,
+            questionsCount: 0,
+            totalMarks: 0,
+            questions: [],
+            participants: [],
             created_at: data.created_at,
             updated_at: data.created_at
           };
@@ -242,11 +309,17 @@ export const quizService = {
       id: 'quiz_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
       name: cleanName,
       description: description.trim(),
-      quizType,
+      quizType: null,
       defaultMarks: Number(defaultMarks) || 1,
-      questionsCount: initialQuestions.length,
-      totalMarks: Number(defaultMarks) || 1,
-      questions: initialQuestions,
+      defaultTimeValue: '',
+      defaultTimeUnit: 'sec',
+      currentRound: 1,
+      isFinished: false,
+      rounds: initialRounds,
+      questionsCount: 0,
+      totalMarks: 0,
+      questions: [],
+      participants: [],
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
@@ -257,7 +330,19 @@ export const quizService = {
   },
 
   // Save / update quiz questions and settings
-  async updateQuiz(quizId, { name, description, quizType, defaultMarks, questions, participants }) {
+  async updateQuiz(quizId, {
+    name,
+    description,
+    quizType,
+    defaultMarks,
+    defaultTimeValue,
+    defaultTimeUnit,
+    currentRound,
+    isFinished,
+    rounds,
+    questions,
+    participants
+  }) {
     if (!quizId) throw new Error('Quiz ID is required');
 
     let user = null;
@@ -271,13 +356,52 @@ export const quizService = {
     const local = getLocalQuizzes(user?.id);
     const existing = local.find(q => q.id === quizId);
 
-    const cleanQuestions = questions !== undefined ? (Array.isArray(questions) ? questions : []) : (existing?.questions || []);
+    const activeRoundNum = currentRound !== undefined ? Number(currentRound) : (existing?.currentRound || 1);
+    const updatedIsFinished = isFinished !== undefined ? Boolean(isFinished) : Boolean(existing?.isFinished);
+
+    let cleanRounds = rounds !== undefined ? (Array.isArray(rounds) ? [...rounds] : []) : (existing?.rounds ? [...existing.rounds] : [
+      {
+        roundNumber: 1,
+        quizType: existing?.quizType || null,
+        isTypeConfirmed: Boolean(existing?.quizType),
+        questions: existing?.questions || [],
+        isCompleted: false
+      }
+    ]);
+
+    // Ensure round for activeRoundNum exists in cleanRounds
+    const roundIdx = cleanRounds.findIndex(r => r.roundNumber === activeRoundNum);
+    if (roundIdx >= 0) {
+      cleanRounds[roundIdx] = {
+        ...cleanRounds[roundIdx],
+        quizType: quizType !== undefined ? quizType : cleanRounds[roundIdx].quizType,
+        isTypeConfirmed: quizType !== undefined ? Boolean(quizType) : cleanRounds[roundIdx].isTypeConfirmed,
+        questions: questions !== undefined ? (Array.isArray(questions) ? questions : []) : (cleanRounds[roundIdx].questions || [])
+      };
+    } else {
+      cleanRounds.push({
+        roundNumber: activeRoundNum,
+        quizType: quizType || null,
+        isTypeConfirmed: Boolean(quizType),
+        questions: questions !== undefined ? (Array.isArray(questions) ? questions : []) : [],
+        isCompleted: false
+      });
+    }
+
+    const currentRoundEntry = cleanRounds.find(r => r.roundNumber === activeRoundNum) || cleanRounds[0];
+    const cleanQuestions = questions !== undefined ? (Array.isArray(questions) ? questions : []) : (currentRoundEntry?.questions || existing?.questions || []);
     const cleanParticipants = participants !== undefined ? (Array.isArray(participants) ? participants : []) : (existing?.participants || []);
     const totalMarks = cleanQuestions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
+
     const updatedSettings = {
       description: description !== undefined ? description : (existing?.description || ''),
-      quizType: quizType || (existing?.quizType || 'one_question_one_chance'),
+      quizType: quizType !== undefined ? quizType : (currentRoundEntry?.quizType || existing?.quizType || null),
       defaultMarks: Number(defaultMarks) || (existing?.defaultMarks || 1),
+      defaultTimeValue: defaultTimeValue !== undefined ? defaultTimeValue : (existing?.defaultTimeValue ?? ''),
+      defaultTimeUnit: defaultTimeUnit || (existing?.defaultTimeUnit || 'sec'),
+      currentRound: activeRoundNum,
+      isFinished: updatedIsFinished,
+      rounds: cleanRounds,
       updated_at: new Date().toISOString()
     };
 
@@ -288,7 +412,8 @@ export const quizService = {
           settings: updatedSettings,
           result_snapshot: {
             questions: cleanQuestions,
-            participants: cleanParticipants
+            participants: cleanParticipants,
+            rounds: cleanRounds
           }
         };
         if (name) updatePayload.result_name = name.trim();
@@ -310,8 +435,13 @@ export const quizService = {
           ...q,
           name: name ? name.trim() : q.name,
           description: description !== undefined ? description : q.description,
-          quizType: quizType || q.quizType,
+          quizType: quizType !== undefined ? quizType : (currentRoundEntry?.quizType || q.quizType),
           defaultMarks: Number(defaultMarks) || q.defaultMarks,
+          defaultTimeValue: defaultTimeValue !== undefined ? defaultTimeValue : (q.defaultTimeValue ?? ''),
+          defaultTimeUnit: defaultTimeUnit || (q.defaultTimeUnit || 'sec'),
+          currentRound: activeRoundNum,
+          isFinished: updatedIsFinished,
+          rounds: cleanRounds,
           questions: cleanQuestions,
           participants: cleanParticipants,
           questionsCount: cleanQuestions.length,

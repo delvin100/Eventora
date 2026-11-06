@@ -190,7 +190,7 @@ export default function AppLayout() {
                     {displayName}
                   </p>
                   <p className="text-[10px] text-gray-400 truncate">
-                    {user?.email || 'Signed In'}
+                    {user?.email || profile?.usage_type || 'User'}
                   </p>
                 </div>
               )}
@@ -272,7 +272,7 @@ export default function AppLayout() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <p className="font-semibold text-sm">{displayName}</p>
-                <p className="text-xs text-gray-400">{user?.email || 'Signed In'}</p>
+                <p className="text-xs text-gray-400">{user?.email || profile?.usage_type || 'User'}</p>
               </div>
             </div>
             <button

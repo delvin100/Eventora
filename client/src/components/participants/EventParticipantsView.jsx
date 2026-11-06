@@ -329,18 +329,24 @@ export default function EventParticipantsView({
             <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm mx-auto">
               Get started by adding participants individually, pasting multiple names at once, or importing an Excel spreadsheet.
             </p>
-            <div className="flex items-center justify-center gap-3 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
               <button
-                onClick={() => setIsImportOpen(true)}
+                onClick={() => { setEditingItem(null); setIsAddOpen(true); }}
                 className="px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25 transition-all cursor-pointer"
               >
-                Import from Excel
+                + Add Single
               </button>
               <button
                 onClick={() => setIsBulkOpen(true)}
                 className="px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-all cursor-pointer"
               >
                 Quick Paste Names
+              </button>
+              <button
+                onClick={() => setIsImportOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white transition-all cursor-pointer"
+              >
+                Import from Excel
               </button>
             </div>
           </div>
@@ -394,9 +400,9 @@ export default function EventParticipantsView({
                       <td className="px-6 py-3 text-center font-semibold text-gray-900 dark:text-white">
                         <div className="inline-flex items-center gap-2.5">
                           <div className="w-7 h-7 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF] text-[11px] font-bold flex items-center justify-center shrink-0 border border-indigo-200/50 dark:border-indigo-800/50">
-                            {p.name.charAt(0).toUpperCase()}
+                            {(p?.name || '?').charAt(0).toUpperCase()}
                           </div>
-                          <span>{p.name}</span>
+                          <span>{p?.name || 'Unnamed Participant'}</span>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-center">
