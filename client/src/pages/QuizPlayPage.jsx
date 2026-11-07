@@ -38,6 +38,7 @@ import EventParticipantsView from '../components/participants/EventParticipantsV
 import { playVictorySound } from '../components/wheel/audio/wheelAudio';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
+import MediaViewer from '../components/quiz/MediaViewer';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
@@ -269,6 +270,7 @@ function QuizPlayPageContent() {
 
   const isTwoChances = currentRoundType === 'one_question_two_chances';
   const isDirect = currentRoundType === 'answer_to_question';
+  const isQuestionDirect = isDirect || (currentRoundType === 'media_based' && activeQuestion?.format === 'direct');
 
   // Questions and pool
   const questionsList = Array.isArray(activeRoundObj?.questions) ? activeRoundObj.questions : (Array.isArray(quiz?.questions) ? quiz.questions : []);
@@ -699,7 +701,7 @@ function QuizPlayPageContent() {
     setIsTimedOut(true);
     setSelectedOptionIdx(null);
 
-    if (isDirect) {
+    if (isQuestionDirect) {
       setIsAnswerRevealed(true);
       setDirectResult('wrong');
     }
@@ -755,7 +757,7 @@ function QuizPlayPageContent() {
       },
       ...prev
     ]);
-  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound, isDirect, isTwoChances]);
+  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound, isDirect, isQuestionDirect, isTwoChances]);
 
   // Active question countdown timer effect
   useEffect(() => {
@@ -1582,6 +1584,17 @@ function QuizPlayPageContent() {
 
             {activeQuestion ? (
               <>
+                {/* Media Attachment (Image, Video, Audio) if provided */}
+                {activeQuestion.mediaUrl && (
+                  <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F]">
+                    <MediaViewer
+                      mediaUrl={activeQuestion.mediaUrl}
+                      mediaType={activeQuestion.mediaType || 'image'}
+                      className="w-full max-h-[340px]"
+                    />
+                  </div>
+                )}
+
                 {/* Question Text */}
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">
@@ -1609,8 +1622,8 @@ function QuizPlayPageContent() {
                   )}
                 </div>
 
-                {/* Mode 1: Answer to Question (Direct Q&A without options) */}
-                {isDirect ? (
+                {/* Mode 1: Answer to Question / Direct Q&A without options */}
+                {isQuestionDirect ? (
                   <div className="space-y-4 pt-2">
                     {!isAnswerRevealed ? (
                       <div className="py-6 flex flex-col items-center justify-center gap-3 bg-gray-50/70 dark:bg-[#12141F] rounded-2xl border border-dashed border-violet-300 dark:border-violet-900/60 p-6 text-center">
@@ -1875,7 +1888,7 @@ function QuizPlayPageContent() {
                   <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between ${
                     isTimedOut
                       ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
-                      : isDirect
+                      : isQuestionDirect
                       ? directResult === 'correct'
                         ? 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900'
                         : 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-900'
@@ -1890,7 +1903,7 @@ function QuizPlayPageContent() {
                     <span>
                       {(() => {
                         if (isTimedOut) return "⏱️ Time's up! No answer selected (0 pts)";
-                        if (isDirect) {
+                        if (isQuestionDirect) {
                           return directResult === 'correct'
                             ? `🎉 Marked as Correct! +${activeQuestion.marks || 1} pts`
                             : `❌ Marked as Wrong (0 pts)`;

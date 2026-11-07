@@ -20,21 +20,30 @@ import {
   X,
   FileCheck,
   Clock,
-  Play
+  Play,
+  Image as ImageIcon,
+  Music,
+  Video as VideoIcon,
+  Link as LinkIcon
 } from 'lucide-react';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import StylishQuizTypeDropdown from '../components/quiz/StylishQuizTypeDropdown';
+import MediaViewer from '../components/quiz/MediaViewer';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
 function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks = 1) {
   const isDirect = quizType === 'answer_to_question';
   const isTwoChances = quizType === 'one_question_two_chances';
+  const isMedia = quizType === 'media_based';
   return {
     id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     text: '',
+    format: isDirect ? 'direct' : 'mcq',
+    mediaType: 'image',
+    mediaUrl: '',
     answer: isDirect ? '' : undefined,
     marks: Number(defaultMarks) || 1,
     secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
@@ -64,6 +73,9 @@ function normalizeQuestions(rawList, defaultSecondMarks = 1) {
     }
     return {
       ...q,
+      format: q.format || (q.options && q.options.length > 0 ? 'mcq' : (q.answer ? 'direct' : 'mcq')),
+      mediaType: q.mediaType || 'image',
+      mediaUrl: q.mediaUrl || '',
       answer: q.answer !== undefined ? q.answer : '',
       secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondMarks) || 1),
       timeValue: val,
@@ -732,10 +744,14 @@ export default function QuizWorkspacePage() {
 
     const isDirect = selectedRoundType === 'answer_to_question';
     const isTwoChances = selectedRoundType === 'one_question_two_chances';
+    const isMedia = selectedRoundType === 'media_based';
 
     const newQ = {
       id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       text: '',
+      format: isDirect ? 'direct' : 'mcq',
+      mediaType: 'image',
+      mediaUrl: '',
       answer: isDirect ? '' : undefined,
       marks: markVal,
       secondTryMarks: isTwoChances ? secondMarkVal : undefined,
@@ -762,6 +778,9 @@ export default function QuizWorkspacePage() {
       ...target,
       id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
       text: target.text ? `${target.text} (Copy)` : '',
+      format: target.format || 'mcq',
+      mediaType: target.mediaType || 'image',
+      mediaUrl: target.mediaUrl || '',
       answer: target.answer !== undefined ? target.answer : '',
       timeLimit: target.timeLimit || null,
       timeValue: target.timeValue !== undefined ? target.timeValue : '',
@@ -782,23 +801,8 @@ export default function QuizWorkspacePage() {
   // Delete question
   const handleDeleteQuestion = (idx) => {
     if (questions.length <= 1) {
-      const isDirect = selectedRoundType === 'answer_to_question';
-      const isTwoChances = selectedRoundType === 'one_question_two_chances';
-      // If deleting the only question, reset it to an empty question
       setQuestions([
-        {
-          id: 'q_' + Date.now(),
-          text: '',
-          answer: isDirect ? '' : undefined,
-          marks: Number(defaultMarks) || 1,
-          secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
-          options: isDirect ? [] : [
-            { id: 'opt_1', text: '', isCorrect: true },
-            { id: 'opt_2', text: '', isCorrect: false },
-            { id: 'opt_3', text: '', isCorrect: false },
-            { id: 'opt_4', text: '', isCorrect: false }
-          ]
-        }
+        createDefaultQuestion(selectedRoundType, defaultMarks, defaultSecondTryMarks)
       ]);
     } else {
       setQuestions(prev => prev.filter((_, i) => i !== idx));
@@ -832,6 +836,48 @@ export default function QuizWorkspacePage() {
     setQuestions(prev => {
       const next = [...prev];
       next[idx] = { ...next[idx], answer: text };
+      return next;
+    });
+  };
+
+  // Update Question Format (MCQ vs Direct Answer / Question Only)
+  const handleQuestionFormatChange = (idx, format) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[idx];
+      let nextOptions = cur.options || [];
+      if (format === 'mcq' && (!nextOptions || nextOptions.length === 0)) {
+        nextOptions = [
+          { id: 'opt_1', text: '', isCorrect: true },
+          { id: 'opt_2', text: '', isCorrect: false },
+          { id: 'opt_3', text: '', isCorrect: false },
+          { id: 'opt_4', text: '', isCorrect: false }
+        ];
+      }
+      next[idx] = {
+        ...cur,
+        format,
+        options: nextOptions,
+        answer: cur.answer !== undefined ? cur.answer : ''
+      };
+      return next;
+    });
+  };
+
+  // Update Question Media Type (image | audio | video)
+  const handleQuestionMediaTypeChange = (idx, mediaType) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], mediaType };
+      return next;
+    });
+  };
+
+  // Update Question Media URL link
+  const handleQuestionMediaUrlChange = (idx, mediaUrl) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], mediaUrl };
       return next;
     });
   };
@@ -1150,6 +1196,8 @@ export default function QuizWorkspacePage() {
                     ? 'One Question - One Chance (MCQ)'
                     : typeDef.id === 'answer_to_question'
                     ? 'Answer to Question (Direct Q&A)'
+                    : typeDef.id === 'media_based'
+                    ? 'Media Question (Audio/Video/Image)'
                     : `${typeDef.name} (MCQ)`}
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap">
@@ -1478,6 +1526,117 @@ export default function QuizWorkspacePage() {
                 </div>
               </div>
 
+              {/* Question Format Selector (for media_based round) */}
+              {selectedRoundType === 'media_based' && (
+                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-gray-50/80 dark:bg-[#12141F] border border-gray-200/80 dark:border-gray-800">
+                  <div>
+                    <span className="text-xs font-bold text-gray-800 dark:text-gray-200 block">Question Format</span>
+                    <span className="text-[11px] text-gray-400">Choose MCQ (with choices) or Question Only (verbal / direct answer)</span>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white dark:bg-[#161925] p-1 rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => handleQuestionFormatChange(qIdx, 'mcq')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        (q.format || 'mcq') === 'mcq'
+                          ? 'bg-[#635BFF] text-white shadow-xs'
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Multiple Choice (MCQ)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuestionFormatChange(qIdx, 'direct')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                        q.format === 'direct'
+                          ? 'bg-[#635BFF] text-white shadow-xs'
+                          : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                      }`}
+                    >
+                      Question Only (Direct Answer)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Media Attachment (URL input, media type tabs, live preview) */}
+              {(selectedRoundType === 'media_based' || q.mediaUrl) && (
+                <div className="p-3.5 rounded-2xl bg-violet-50/40 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
+                      <LinkIcon className="w-3.5 h-3.5" />
+                      <span>Media Attachment (Link / URL)</span>
+                    </div>
+
+                    {/* Media Type Tabs */}
+                    <div className="flex items-center gap-1 bg-white dark:bg-[#12141F] p-0.5 rounded-lg border border-violet-200/60 dark:border-violet-800/60 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleQuestionMediaTypeChange(qIdx, 'image')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          (q.mediaType || 'image') === 'image'
+                            ? 'bg-[#635BFF] text-white shadow-xs'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <ImageIcon className="w-3 h-3" />
+                        <span>Image</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleQuestionMediaTypeChange(qIdx, 'audio')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          q.mediaType === 'audio'
+                            ? 'bg-[#635BFF] text-white shadow-xs'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <Music className="w-3 h-3" />
+                        <span>Audio</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleQuestionMediaTypeChange(qIdx, 'video')}
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          q.mediaType === 'video'
+                            ? 'bg-[#635BFF] text-white shadow-xs'
+                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <VideoIcon className="w-3 h-3" />
+                        <span>Video</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <input
+                    type="url"
+                    value={q.mediaUrl || ''}
+                    onChange={(e) => handleQuestionMediaUrlChange(qIdx, e.target.value)}
+                    placeholder={
+                      (q.mediaType || 'image') === 'image'
+                        ? 'Paste image URL (e.g. https://.../image.png or Unsplash / Imgur link)...'
+                        : q.mediaType === 'audio'
+                        ? 'Paste audio URL (e.g. https://.../audio.mp3)...'
+                        : 'Paste video URL (YouTube, Vimeo, or .mp4 link)...'
+                    }
+                    className="w-full px-3.5 py-2 rounded-xl border border-violet-200/80 dark:border-violet-800/80 bg-white dark:bg-[#12141F] text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400"
+                  />
+
+                  {q.mediaUrl && (
+                    <div className="pt-2 border-t border-violet-100 dark:border-violet-900/30">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+                        Media Preview
+                      </div>
+                      <div className="max-w-md rounded-xl overflow-hidden">
+                        <MediaViewer mediaUrl={q.mediaUrl} mediaType={q.mediaType || 'image'} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Question Statement Input */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
@@ -1492,8 +1651,8 @@ export default function QuizWorkspacePage() {
                 />
               </div>
 
-              {selectedRoundType === 'answer_to_question' ? (
-                /* Direct Answer (Answer to Question) */
+              {selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && q.format === 'direct') ? (
+                /* Direct Answer (Answer to Question / Direct Media Question) */
                 <div className="space-y-1.5 pt-1">
                   <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
                     Correct Answer <span className="normal-case font-normal text-gray-400">(Revealed when "Show Answer" is clicked during quiz)</span>

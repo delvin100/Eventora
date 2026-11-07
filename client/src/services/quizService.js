@@ -118,6 +118,13 @@ export const QUIZ_TYPES = [
     description: 'Direct question and answer without options.',
     mode: 'direct',
     isAvailable: true
+  },
+  {
+    id: 'media_based',
+    name: 'Media Question (Audio/Video/Image)',
+    description: 'Questions with audio, video, or image links. Choose MCQ or Question Only.',
+    mode: 'media',
+    isAvailable: true
   }
 ];
 

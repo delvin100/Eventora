@@ -22,6 +22,7 @@ export default function StylishQuizTypeDropdown({ selectedTypeId, onChange }) {
     if (!type) return 'MCQ';
     if (type.mode === 'direct') return 'Direct Q&A';
     if (type.mode === 'mcq_2') return '2 Chances';
+    if (type.mode === 'media') return 'Media';
     return 'MCQ';
   };
 
