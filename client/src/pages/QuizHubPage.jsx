@@ -13,13 +13,17 @@ import {
   Video,
   Music,
   Image as ImageIcon,
-  CheckCircle2
+  CheckCircle2,
+  RotateCcw
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import { quizService } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 import QuizSettingsModal from '../components/quiz/QuizSettingsModal';
 
 export default function QuizHubPage() {
+  const { user } = useAuth();
   const { quizId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -28,6 +32,9 @@ export default function QuizHubPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
 
   const fetchQuiz = async () => {
     try {
@@ -56,6 +63,26 @@ export default function QuizHubPage() {
     await quizService.updateQuiz(quiz.id, updatedFields);
     await fetchQuiz();
   };
+
+  const handleResetProgress = async () => {
+    if (!quiz?.id) return;
+    try {
+      setResetting(true);
+      await quizService.resetQuizProgress(quiz.id);
+      setIsResetDialogOpen(false);
+      setResetSuccess(true);
+      setTimeout(() => setResetSuccess(false), 4000);
+      await fetchQuiz();
+    } catch (err) {
+      console.error('Failed to reset quiz progress:', err);
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+  const isOwner = Boolean(user?.id && (quiz?.owner_id === user.id || quiz?.owner?.id === user.id));
+  const canReset = isAdmin || isOwner || !user;
 
   if (loading) {
     return (
@@ -99,11 +126,11 @@ export default function QuizHubPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
           <Link
-            to="/app/quiz"
+            to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-all shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>All Quizzes</span>
+            <span>{location.state?.fromAdminAllQuizzes ? "All User Quizzes" : "All Quizzes"}</span>
           </Link>
           <span className="text-gray-300 dark:text-gray-700">/</span>
           <span className="text-gray-900 dark:text-white font-bold truncate max-w-xs sm:max-w-md">
@@ -111,16 +138,39 @@ export default function QuizHubPage() {
           </span>
         </div>
 
-        {/* Settings button */}
-        <button
-          type="button"
-          onClick={() => setIsSettingsOpen(true)}
-          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/50 text-gray-700 dark:text-gray-300 hover:text-violet-600 dark:hover:text-violet-400 text-xs font-bold transition-all cursor-pointer shadow-xs"
-        >
-          <Settings className="w-3.5 h-3.5" />
-          <span>Quiz Intro & Settings</span>
-        </button>
+        {/* Top Right Action buttons */}
+        <div className="flex items-center gap-2">
+          {canReset && (
+            <button
+              type="button"
+              onClick={() => setIsResetDialogOpen(true)}
+              className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-rose-600 dark:text-rose-400 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              title="Reset scores, turns, and wheel progress back to Round 1"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Progress</span>
+            </button>
+          )}
+
+          {/* Settings button */}
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/50 text-gray-700 dark:text-gray-300 hover:text-violet-600 dark:hover:text-violet-400 text-xs font-bold transition-all cursor-pointer shadow-xs"
+          >
+            <Settings className="w-3.5 h-3.5" />
+            <span>Quiz Intro & Settings</span>
+          </button>
+        </div>
       </div>
+
+      {/* Reset Success Notice */}
+      {resetSuccess && (
+        <div className="px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in duration-200 shadow-xs">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span>Quiz progress has been successfully reset! All participant scores are reset to 0, wheel turns are refreshed, and the quiz is set back to Round 1. All questions, options, and settings were safely kept.</span>
+        </div>
+      )}
 
       {/* Quiz Header Hero */}
       <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-white via-white to-violet-50/40 dark:from-[#161925] dark:via-[#161925] dark:to-violet-950/20 border border-gray-200/80 dark:border-gray-800 p-6 sm:p-8 shadow-sm">
@@ -157,7 +207,7 @@ export default function QuizHubPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card 1: Questions */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/questions`, { state: { quizId: quiz.id } })}
+          onClick={() => navigate(`/app/quiz/${quizSlug}/questions`, { state: { quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-violet-500/80 dark:hover:border-violet-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
@@ -193,7 +243,7 @@ export default function QuizHubPage() {
 
         {/* Card 2: Participants */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, tab: 'participants' } })}
+          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, tab: 'participants', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-sky-500/80 dark:hover:border-sky-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-sky-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
@@ -229,7 +279,7 @@ export default function QuizHubPage() {
 
         {/* Card 3: Start Quiz */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1 } })}
+          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#635BFF] to-[#4F46E5] text-white p-6 sm:p-7 shadow-lg shadow-[#635BFF]/25 hover:shadow-2xl hover:shadow-[#635BFF]/35 hover:-translate-y-1 transition-all cursor-pointer ring-1 ring-white/20"
         >
           <div className="space-y-4">
@@ -270,6 +320,19 @@ export default function QuizHubPage() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
+      />
+
+      {/* Reset Progress Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isResetDialogOpen}
+        title="Reset Quiz Progress"
+        message={`Are you sure you want to reset all test progress for "${quiz?.name}"? This will reset all participant points to 0, return all participants to the wheel, and reset the quiz back to Round 1. All questions, options, settings, and participant names will be safely kept.`}
+        confirmText={resetting ? 'Resetting...' : 'Reset Progress'}
+        confirmVariant="danger"
+        isLoading={resetting}
+        onConfirm={handleResetProgress}
+        onCancel={() => setIsResetDialogOpen(false)}
+        onClose={() => setIsResetDialogOpen(false)}
       />
     </div>
   );

@@ -32,9 +32,12 @@ import {
   Eye,
   XCircle,
   Maximize2,
-  Minimize2
+  Minimize2,
+  RotateCcw
 } from 'lucide-react';
 
+import { useAuth } from '../context/AuthContext';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 import WheelCanvas from '../components/wheel/WheelCanvas';
 import EventParticipantsView from '../components/participants/EventParticipantsView';
 import { playVictorySound } from '../components/wheel/audio/wheelAudio';
@@ -204,12 +207,16 @@ class QuizPlayErrorBoundary extends React.Component {
 }
 
 function QuizPlayPageContent() {
+  const { user } = useAuth();
   const { quizId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
 
   const [quiz, setQuiz] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetBanner, setResetBanner] = useState(false);
 
   // Master Participants State (all enrolled students with cumulative marks)
   const [allParticipants, setAllParticipants] = useState([]);
@@ -226,6 +233,56 @@ function QuizPlayPageContent() {
 
   const toggleFullscreen = () => {
     setIsFullscreen(prev => !prev);
+  };
+
+  const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+  const isOwner = Boolean(user?.id && (quiz?.owner_id === user.id || quiz?.owner?.id === user.id));
+  const canReset = isAdmin || isOwner || !user;
+
+  const handleResetQuizProgress = async () => {
+    if (!quiz?.id) return;
+    try {
+      setResetting(true);
+      await quizService.resetQuizProgress(quiz.id);
+
+      // Reset local arena state
+      setCurrentRound(1);
+      setUsedQuestionIds(new Set());
+      setRemovedIds(new Set());
+      setCurrentWinner(null);
+      setActiveQuestion(null);
+      setIsQuestionModalOpen(false);
+      setIsAnswerRevealed(false);
+      setDirectResult(null);
+      setAllParticipants(prev => (prev || []).map(p => ({
+        ...p,
+        score: 0,
+        turns: 0,
+        correct: 0
+      })));
+
+      // Reload fresh quiz data
+      const freshQuiz = await quizService.getQuizById(quiz.id);
+      if (freshQuiz) {
+        setQuiz(freshQuiz);
+      }
+
+      setIsResetDialogOpen(false);
+      setResetBanner(true);
+      setTimeout(() => setResetBanner(false), 4000);
+
+      // Re-trigger quiz intro if available
+      if (freshQuiz?.introMediaUrl) {
+        setShowingIntro('quiz');
+      } else {
+        setShowingIntro(null);
+        setActiveTab('wheel');
+      }
+    } catch (err) {
+      console.error('Failed to reset quiz progress on play page:', err);
+    } finally {
+      setResetting(false);
+    }
   };
 
   // If there are no participants yet and we finished loading, keep user on participants tab
@@ -971,11 +1028,18 @@ function QuizPlayPageContent() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <nav className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
-            <Link to="/app/quiz" className="hover:text-gray-900 dark:hover:text-white transition-colors">
-              All Quizzes
+            <Link
+              to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
+              className="hover:text-gray-900 dark:hover:text-white transition-colors"
+            >
+              {location.state?.fromAdminAllQuizzes ? "All User Quizzes" : "All Quizzes"}
             </Link>
             <span>/</span>
-            <Link to={`/app/quiz/${quizSlug}`} className="hover:text-[#635BFF] transition-colors truncate max-w-[200px]">
+            <Link
+              to={`/app/quiz/${quizSlug}`}
+              state={{ quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes }}
+              className="hover:text-[#635BFF] transition-colors truncate max-w-[200px]"
+            >
               {quiz.name}
             </Link>
             <span>/</span>
@@ -995,8 +1059,21 @@ function QuizPlayPageContent() {
           </div>
         </div>
 
-        {/* Top Action Buttons: Fullscreen, Play Intro & Edit Questions */}
+        {/* Top Action Buttons: Reset Progress, Fullscreen, Play Intro & Edit Questions */}
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Reset Test Progress Button */}
+          {canReset && (
+            <button
+              type="button"
+              onClick={() => setIsResetDialogOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-xs cursor-pointer"
+              title="Reset test scores, turns, and wheel progress back to Round 1"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Progress</span>
+            </button>
+          )}
+
           {/* Fullscreen Toggle */}
           <button
             type="button"
@@ -1045,6 +1122,14 @@ function QuizPlayPageContent() {
           </Link>
         </div>
       </div>
+
+      {/* Reset Progress Success Notice */}
+      {resetBanner && (
+        <div className="px-4 py-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 text-emerald-700 dark:text-emerald-300 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in duration-200 shadow-xs">
+          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span>Quiz progress has been reset back to Round 1! Scores and wheel turns have been refreshed.</span>
+        </div>
+      )}
 
       {/* Main Tabs (Participants vs Wheel vs Total Marks) */}
       <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-gray-100 dark:bg-[#161925] border border-gray-200 dark:border-gray-800 w-fit">
@@ -2208,6 +2293,19 @@ function QuizPlayPageContent() {
           </div>
         </div>
       )}
+
+      {/* Reset Progress Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isResetDialogOpen}
+        title="Reset Quiz Progress"
+        message={`Are you sure you want to reset all test progress for "${quiz?.name}"? This will reset all participant points to 0, return all participants to the wheel, and reset the quiz back to Round 1. All questions, options, settings, and participant names will be safely kept.`}
+        confirmText={resetting ? 'Resetting...' : 'Reset Progress'}
+        confirmVariant="danger"
+        isLoading={resetting}
+        onConfirm={handleResetQuizProgress}
+        onCancel={() => setIsResetDialogOpen(false)}
+        onClose={() => setIsResetDialogOpen(false)}
+      />
     </div>
   );
 }

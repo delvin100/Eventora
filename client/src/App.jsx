@@ -19,6 +19,7 @@ import TemplatesPage from './pages/TemplatesPage';
 import SpecialEventsPage from './pages/SpecialEventsPage';
 import UsersManagementPage from './pages/UsersManagementPage';
 import AdminAllEventsPage from './pages/AdminAllEventsPage';
+import AdminAllQuizzesPage from './pages/AdminAllQuizzesPage';
 import QuizDashboardPage from './pages/QuizDashboardPage';
 import QuizHubPage from './pages/QuizHubPage';
 import QuizWorkspacePage from './pages/QuizWorkspacePage';
@@ -96,6 +97,7 @@ export default function App() {
               <Route path="templates" element={<TemplatesPage />} />
               <Route path="special-events" element={<SpecialEventsPage />} />
               <Route path="admin/events" element={<AdminAllEventsPage />} />
+              <Route path="admin/quizzes" element={<AdminAllQuizzesPage />} />
               <Route path="users" element={<UsersManagementPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>

@@ -13,7 +13,8 @@ import {
   Sparkles,
   UserCheck,
   Mail,
-  UserX
+  UserX,
+  HelpCircle
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
@@ -194,7 +195,7 @@ export default function UsersManagementPage() {
                   <th className="py-3.5 px-5">User</th>
                   <th className="py-3.5 px-5">Email</th>
                   <th className="py-3.5 px-5">Usage Type</th>
-                  <th className="py-3.5 px-5">Created Events</th>
+                  <th className="py-3.5 px-5">Events & Quizzes</th>
                   <th className="py-3.5 px-5">Joined Date</th>
                   <th className="py-3.5 px-5 text-right">Actions</th>
                 </tr>
@@ -237,18 +238,28 @@ export default function UsersManagementPage() {
                       </span>
                     </td>
 
-                    {/* Events count */}
+                    {/* Events & Quizzes count */}
                     <td className="py-4 px-5">
-                      <Link
-                        to={`/app/admin/events?user=${u.id}`}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 font-semibold text-xs border border-indigo-200/60 dark:border-indigo-800/60 transition-all cursor-pointer"
-                        title={`View ${u.displayName}'s events in All Events Explorer`}
-                      >
-                        <FolderKanban className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                        <span>
-                          {u.eventsCount || 0} Event{(u.eventsCount || 0) === 1 ? '' : 's'}
-                        </span>
-                      </Link>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          to={`/app/admin/events?user=${u.id}`}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 font-semibold text-xs border border-indigo-200/60 dark:border-indigo-800/60 transition-all cursor-pointer"
+                          title={`View ${u.displayName}'s events in All Events Explorer`}
+                        >
+                          <FolderKanban className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+                          <span>
+                            {u.eventsCount || 0} Event{(u.eventsCount || 0) === 1 ? '' : 's'}
+                          </span>
+                        </Link>
+                        <Link
+                          to={`/app/admin/quizzes?user=${u.id}`}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/80 text-violet-700 dark:text-violet-300 font-semibold text-xs border border-violet-200/60 dark:border-violet-800/60 transition-all cursor-pointer"
+                          title={`View ${u.displayName}'s quizzes in All Quizzes Explorer`}
+                        >
+                          <HelpCircle className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                          <span>Quizzes</span>
+                        </Link>
+                      </div>
                     </td>
 
                     {/* Joined Date */}

@@ -1082,6 +1082,122 @@ router.get('/admin/all-events', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/ps/admin/all-quizzes
+ * Fetch all quizzes from all users with creator info (Admin Only)
+ */
+router.get('/admin/all-quizzes', async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.json({ success: true, quizzes: [] });
+    }
+
+    const { email } = req.query;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const isAdmin = requesterEmail === 'admin@gmail.com';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    // 1. Fetch all quizzes from results table
+    const { data: results, error: resultsErr } = await supabase
+      .from('results')
+      .select('*')
+      .eq('operation_type', 'quiz')
+      .order('created_at', { ascending: false });
+
+    if (resultsErr) throw resultsErr;
+
+    // 2. Fetch all profiles
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('*');
+
+    const profileMap = new Map();
+    (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+    // 3. Fetch auth users if available
+    const authUserMap = new Map();
+    try {
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      if (authData?.users) {
+        authData.users.forEach(u => authUserMap.set(u.id, u));
+      }
+    } catch (_) {}
+
+    // 4. Combine each quiz with owner info
+    const formattedQuizzes = (results || []).map(r => {
+      const authUser = authUserMap.get(r.owner_id);
+      const profile = profileMap.get(r.owner_id);
+      const ownerEmail = authUser?.email || (profile?.display_name?.includes('@') ? profile.display_name : null) || 'user@eventora.app';
+      const displayName = profile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User';
+
+      return {
+        ...r,
+        owner: {
+          id: r.owner_id,
+          displayName,
+          email: ownerEmail,
+          usageType: profile?.usage_type || authUser?.user_metadata?.usage_type || 'personal'
+        }
+      };
+    });
+
+    return res.json({ success: true, quizzes: formattedQuizzes });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/admin/quizzes/:quizId
+ * Delete any quiz by ID (Admin Only)
+ */
+router.delete('/admin/quizzes/:quizId', async (req, res, next) => {
+  try {
+    const { quizId } = req.params;
+    if (!supabase || !quizId) {
+      return res.status(400).json({ success: false, message: 'Quiz ID is required' });
+    }
+
+    const { email } = req.query;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const isAdmin = requesterEmail === 'admin@gmail.com';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    const { error } = await supabase
+      .from('results')
+      .delete()
+      .eq('id', quizId)
+      .eq('operation_type', 'quiz');
+
+    if (error) throw error;
+    return res.json({ success: true, message: 'Quiz deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/ps/events/:idOrSlug
  * Get any event by ID or slug with owner details (Admin & direct lookup)
  */

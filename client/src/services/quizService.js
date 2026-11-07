@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { slugify } from '../utils/slugUtils';
 
 const LOCAL_STORAGE_KEY = 'eventora_quizzes_cache';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 function formatQuizRecord(r) {
   const currentRound = Number(r.settings?.currentRound) || 1;
@@ -35,6 +36,8 @@ function formatQuizRecord(r) {
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
   return {
     id: r.id,
+    owner_id: r.owner_id,
+    owner: r.owner || null,
     name: r.result_name,
     description: r.settings?.description || '',
     quizType: activeRound?.quizType || r.settings?.quizType || null,
@@ -141,6 +144,85 @@ export const QUIZ_TYPES = [
 ];
 
 export const quizService = {
+  // Fetch all quizzes across all users (Admin only)
+  async getAllUsersQuizzes(user = null) {
+    let currentUser = user;
+    if (!currentUser && supabase) {
+      try {
+        const { data } = await supabase.auth.getUser();
+        currentUser = data?.user;
+      } catch (_) {}
+    }
+
+    const email = currentUser?.email || '';
+
+    // 1. Try Backend Admin API
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/admin/all-quizzes?email=${encodeURIComponent(email)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && Array.isArray(json.quizzes)) {
+          return json.quizzes.map(q => {
+            const formatted = formatQuizRecord(q);
+            return {
+              ...formatted,
+              owner: q.owner || null
+            };
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Backend all-quizzes API fetch failed, trying Supabase fallback:', err);
+    }
+
+    // 2. Supabase Fallback (direct access)
+    if (supabase) {
+      try {
+        const [{ data: results, error: resErr }, { data: profiles }] = await Promise.all([
+          supabase.from('results').select('*').eq('operation_type', 'quiz').order('created_at', { ascending: false }),
+          supabase.from('profiles').select('*')
+        ]);
+
+        if (resErr) throw resErr;
+
+        const profileMap = new Map();
+        (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+        return (results || []).map(r => {
+          const profile = profileMap.get(r.owner_id);
+          const ownerEmail = profile?.display_name?.includes('@')
+            ? profile.display_name
+            : `${profile?.display_name?.toLowerCase().replace(/\s+/g, '') || 'user'}@eventora.app`;
+
+          const formatted = formatQuizRecord(r);
+          return {
+            ...formatted,
+            owner: {
+              id: r.owner_id,
+              displayName: profile?.display_name || 'Organizer',
+              email: ownerEmail,
+              usageType: profile?.usage_type || 'personal'
+            }
+          };
+        });
+      } catch (fbErr) {
+        console.error('Supabase fallback all-quizzes failed:', fbErr);
+      }
+    }
+
+    // 3. Fallback to all local quizzes with simulated owner
+    const allLocal = getLocalQuizzes();
+    return allLocal.map(q => ({
+      ...q,
+      owner: q.owner || {
+        id: 'local_user',
+        displayName: 'Local Organizer',
+        email: 'organizer@eventora.app',
+        usageType: 'personal'
+      }
+    }));
+  },
+
   // Fetch all quizzes for current user
   async getQuizzes() {
     let user = null;
@@ -189,6 +271,7 @@ export const quizService = {
       } catch (_) {}
     }
 
+    const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
     const targetSlug = slugify(idOrSlug);
     const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim().toLowerCase();
@@ -210,18 +293,23 @@ export const quizService = {
         }
 
         // Try slug or matching result_name
-        const { data: allUserQuizzes, error } = await supabase
+        let query = supabase
           .from('results')
           .select('*')
-          .eq('owner_id', user.id)
           .eq('operation_type', 'quiz')
           .order('created_at', { ascending: false });
 
-        if (!error && Array.isArray(allUserQuizzes)) {
-          const matched = allUserQuizzes.find(r => {
+        if (!isAdmin) {
+          query = query.eq('owner_id', user.id);
+        }
+
+        const { data: allQuizzes, error } = await query;
+
+        if (!error && Array.isArray(allQuizzes)) {
+          const matched = allQuizzes.find(r => {
             const rSlug = slugify(r.result_name);
             return rSlug === targetSlug || r.result_name?.toLowerCase() === cleanName || r.id === idOrSlug;
-          }) || allUserQuizzes.find(r => r.result_name?.toLowerCase().includes(cleanName));
+          }) || allQuizzes.find(r => r.result_name?.toLowerCase().includes(cleanName));
 
           if (matched) {
             return formatQuizRecord(matched);
@@ -453,11 +541,17 @@ export const quizService = {
         };
         if (name) updatePayload.result_name = name.trim();
 
-        await supabase
+        const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+        const query = supabase
           .from('results')
           .update(updatePayload)
-          .eq('id', quizId)
-          .eq('owner_id', user.id);
+          .eq('id', quizId);
+
+        if (!isAdmin) {
+          query.eq('owner_id', user.id);
+        }
+
+        await query;
       } catch (err) {
         console.warn('Supabase update quiz failed:', err);
       }
@@ -499,6 +593,61 @@ export const quizService = {
     return this.updateQuiz(quizId, { participants });
   },
 
+  // Reset quiz progress (points, turns, fair-turn pool, questions answered, back to round 1)
+  // Keeps all questions, options, settings, intro media, and participant names completely intact
+  async resetQuizProgress(quizId) {
+    if (!quizId) throw new Error('Quiz ID is required');
+
+    let user = null;
+    if (supabase) {
+      try {
+        const { data } = await supabase.auth.getUser();
+        user = data?.user;
+      } catch (_) {}
+    }
+
+    const currentQuiz = await this.getQuizById(quizId);
+    if (!currentQuiz) throw new Error('Quiz not found');
+
+    const resetParticipants = (currentQuiz.participants || []).map(p => ({
+      ...p,
+      score: 0,
+      turns: 0,
+      correct: 0
+    }));
+
+    const resetRounds = (currentQuiz.rounds || []).map(r => ({
+      ...r,
+      isCompleted: false
+    }));
+
+    const round1 = resetRounds.find(r => r.roundNumber === 1) || resetRounds[0];
+    const round1Questions = round1?.questions || currentQuiz.questions || [];
+
+    // Clear local storage session caches for spins / used questions
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const prefix = `eventora_quiz_session_${quizId}`;
+        const keysToRemove = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith(prefix)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach(k => localStorage.removeItem(k));
+      } catch (_) {}
+    }
+
+    return await this.updateQuiz(quizId, {
+      currentRound: 1,
+      isFinished: false,
+      rounds: resetRounds,
+      questions: round1Questions,
+      participants: resetParticipants
+    });
+  },
+
   // Delete a quiz
   async deleteQuiz(quizId) {
     if (!quizId) return;
@@ -511,13 +660,30 @@ export const quizService = {
       } catch (_) {}
     }
 
+    const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
+
+    // 1. Try Backend Admin API if Admin
+    if (isAdmin) {
+      try {
+        await fetch(`${API_BASE_URL}/ps/admin/quizzes/${quizId}?email=${encodeURIComponent(user?.email || '')}`, {
+          method: 'DELETE'
+        });
+      } catch (_) {}
+    }
+
+    // 2. Supabase
     if (supabase && user) {
       try {
-        await supabase
+        const query = supabase
           .from('results')
           .delete()
-          .eq('id', quizId)
-          .eq('owner_id', user.id);
+          .eq('id', quizId);
+
+        if (!isAdmin) {
+          query.eq('owner_id', user.id);
+        }
+
+        await query;
       } catch (_) {}
     }
 

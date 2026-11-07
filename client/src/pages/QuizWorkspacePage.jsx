@@ -1072,15 +1072,16 @@ export default function QuizWorkspacePage() {
       {/* Breadcrumb Navigation */}
       <nav className="flex items-center gap-2 text-xs font-semibold text-gray-500">
         <Link
-          to="/app/quiz"
+          to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
           className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
-          <span>All Quizzes</span>
+          <span>{location.state?.fromAdminAllQuizzes ? "All User Quizzes" : "All Quizzes"}</span>
         </Link>
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <Link
-          to={`/app/quiz/${slugify(quizName) || quiz.id}`}
+          to={`/app/quiz/${slugify(quizName) || quiz?.id}`}
+          state={{ quizId: quiz?.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes }}
           className="text-gray-900 dark:text-white font-bold hover:text-[#635BFF] transition-colors truncate max-w-xs"
         >
           {quizName}

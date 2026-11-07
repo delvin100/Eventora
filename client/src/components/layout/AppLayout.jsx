@@ -63,6 +63,7 @@ export default function AppLayout() {
     ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown }] : []),
     { name: 'Quiz', to: '/app/quiz', icon: HelpCircle },
     ...(isAdmin ? [{ name: 'All User Events', to: '/app/admin/events', icon: Globe, isAdminOnly: true }] : []),
+    ...(isAdmin ? [{ name: 'All User Quizzes', to: '/app/admin/quizzes', icon: HelpCircle, isAdminOnly: true }] : []),
     { name: 'All Lists', to: '/app/lists', icon: ListOrdered },
     { name: 'Recent Results', to: '/app/results', icon: History },
     { name: 'Templates', to: '/app/templates', icon: FileBox },
