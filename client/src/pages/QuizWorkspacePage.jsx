@@ -1616,13 +1616,16 @@ export default function QuizWorkspacePage() {
                     onChange={(e) => handleQuestionMediaUrlChange(qIdx, e.target.value)}
                     placeholder={
                       (q.mediaType || 'image') === 'image'
-                        ? 'Paste image URL (e.g. https://.../image.png or Unsplash / Imgur link)...'
+                        ? 'Paste Google Drive image link or web image URL (Unsplash, Imgur, .png, .jpg)...'
                         : q.mediaType === 'audio'
-                        ? 'Paste audio URL (e.g. https://.../audio.mp3)...'
-                        : 'Paste video URL (YouTube, Vimeo, or .mp4 link)...'
+                        ? 'Paste Google Drive audio link or audio URL (.mp3, .wav)...'
+                        : 'Paste Google Drive video link, YouTube, Vimeo, or .mp4 URL...'
                     }
                     className="w-full px-3.5 py-2 rounded-xl border border-violet-200/80 dark:border-violet-800/80 bg-white dark:bg-[#12141F] text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400"
                   />
+                  <p className="text-[10.5px] text-gray-500 dark:text-gray-400">
+                    Supports <strong>Google Drive</strong> (ensure link sharing is set to "Anyone with the link can view"), <strong>YouTube</strong>, <strong>Vimeo</strong>, or direct media URLs.
+                  </p>
 
                   {q.mediaUrl && (
                     <div className="pt-2 border-t border-violet-100 dark:border-violet-900/30">
