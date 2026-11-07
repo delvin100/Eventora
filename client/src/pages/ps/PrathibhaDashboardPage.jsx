@@ -193,13 +193,11 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
   const hasSubmitted = Boolean(mySubmission);
   const isEvaluating = liveState.status === 'evaluating' && Boolean(liveState.currentStudent);
 
-  const activeRoundNum = liveState.currentRound || 1;
+  const activeRoundNum = Number(liveState.currentRound) || 1;
   const configuredRoundObj = settings?.rounds?.find(r => Number(r.roundNumber) === Number(activeRoundNum));
   const currentTaskName = liveState.roundTask || configuredRoundObj?.task || '';
 
-  const evaluatedCount = liveState.evaluatedCount !== undefined ? liveState.evaluatedCount : 0;
-  const nextParticipantNumber = evaluatedCount + 1;
-  const ordinalWord = getOrdinalWord(nextParticipantNumber);
+  const ordinalWord = getOrdinalWord(activeRoundNum);
 
   const parsedScore = Number(score) || 0;
   const parsedGrace = (grace === '' || isNaN(Number(grace))) ? 0 : Number(grace);
@@ -318,6 +316,14 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
               <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
                 The organizer is spinning the wheel. As soon as a participant is selected and activated, this screen will automatically load the scoring panel.
               </p>
+              {currentTaskName && (
+                <div className="pt-1">
+                  <span className="text-xs text-violet-300 bg-violet-500/15 border border-violet-500/30 px-3 py-1 rounded-xl inline-flex items-center gap-1.5 font-medium">
+                    <Award className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Round {activeRoundNum} Task: <strong>{currentTaskName}</strong></span>
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="pt-2 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#1F2333] border border-gray-700/60 text-xs text-gray-300 font-medium">
@@ -348,6 +354,17 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
                 <h3 className="text-3xl sm:text-4xl font-black text-white tracking-tight mt-3">
                   {liveState.currentStudent?.name}
                 </h3>
+
+                {/* Prominent Task Name Display */}
+                {currentTaskName && (
+                  <div className="pt-2 flex justify-center">
+                    <div className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-violet-500/15 border border-violet-500/30 text-violet-200 text-xs sm:text-sm font-semibold max-w-full">
+                      <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-violet-300 font-bold">Assigned Task:</span>
+                      <span className="text-white font-extrabold truncate">{currentTaskName}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -398,7 +415,7 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
                     <span>Enter Evaluator Score</span>
                   </h4>
                   <p className="text-xs text-gray-400 mt-0.5">
-                    Assign your score for {liveState.currentStudent?.name} in Round {liveState.currentRound}.
+                    Assign your score for {liveState.currentStudent?.name} {currentTaskName ? `on "${currentTaskName}"` : `in Round ${liveState.currentRound}`}.
                   </p>
                 </div>
 
@@ -423,29 +440,11 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
                         step="1"
                         value={score}
                         onChange={(e) => handleScoreUpdate(e.target.value)}
+                        onWheel={(e) => e.currentTarget.blur()}
                         placeholder="Enter score (e.g. 85)..."
                         autoFocus
                         className="w-full px-3 py-2 text-lg font-black text-white bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
-                    </div>
-
-                    {/* Quick Score preset chips */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <span className="text-[10px] text-gray-500 font-semibold">Presets:</span>
-                      {[10, 20, 25, 50, 75, 80, 85, 90, 95, 100].map(val => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => handleScoreUpdate(String(val))}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            score === String(val)
-                              ? 'bg-violet-600 text-white'
-                              : 'bg-[#1F2333] text-gray-400 hover:text-white hover:bg-gray-700'
-                          }`}
-                        >
-                          {val}
-                        </button>
-                      ))}
                     </div>
                   </div>
 
@@ -456,7 +455,7 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
                         Grace Marks
                       </label>
                       <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
-                        Optional (Default: 0)
+                        Optional
                       </span>
                     </div>
 
@@ -468,28 +467,10 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
                         step="1"
                         value={grace}
                         onChange={(e) => handleGraceUpdate(e.target.value)}
+                        onWheel={(e) => e.currentTarget.blur()}
                         placeholder="0"
                         className="w-full px-3 py-2 text-base font-bold text-white bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
-                    </div>
-
-                    {/* Quick Grace Preset Chips */}
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      <span className="text-[10px] text-gray-500 font-semibold">Quick Grace:</span>
-                      {[0, 1, 2, 3, 5, 10].map(val => (
-                        <button
-                          key={val}
-                          type="button"
-                          onClick={() => handleGraceUpdate(String(val))}
-                          className={`px-2 py-0.5 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
-                            grace === String(val)
-                              ? 'bg-emerald-600 text-white'
-                              : 'bg-[#1F2333] text-gray-400 hover:text-white hover:bg-gray-700'
-                          }`}
-                        >
-                          +{val}
-                        </button>
-                      ))}
                     </div>
                   </div>
 

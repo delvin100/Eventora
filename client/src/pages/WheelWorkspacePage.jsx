@@ -96,6 +96,15 @@ export default function WheelWorkspacePage() {
     return 1;
   });
 
+  // Total Rounds Count (Persisted across refreshes)
+  const [totalRoundsCount, setTotalRoundsCount] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`eventora_total_rounds_${eventId}`);
+      if (saved) return Math.max(1, parseInt(saved, 10));
+    } catch (_) {}
+    return 2;
+  });
+
   // Removed participants for the active round (Persisted across refreshes)
   const [removedIds, setRemovedIds] = useState(() => {
     try {
@@ -238,19 +247,40 @@ export default function WheelWorkspacePage() {
       specialEventService.getSpecialEventSettings(eventId).then(async (settings) => {
         if (settings) {
           setSpecialSettings(settings);
+          if (typeof settings.roundsCount === 'number' && settings.roundsCount > 0) {
+            setTotalRoundsCount(settings.roundsCount);
+            try {
+              localStorage.setItem(`eventora_total_rounds_${eventId}`, settings.roundsCount.toString());
+            } catch (_) {}
+          }
           // Only initialize live state round if none is active on backend yet
           const existingLive = await specialEventLiveService.getLiveState().catch(() => null);
           if (!existingLive || !existingLive.currentRound) {
             const savedRound = parseInt(localStorage.getItem(`eventora_round_${eventId}`) || '1', 10);
-            const targetRoundObj = settings.rounds?.find(r => r.roundNumber === savedRound) || settings.rounds?.[0];
-            if (targetRoundObj) {
-              specialEventLiveService.setRound(targetRoundObj.roundNumber, targetRoundObj.task || '');
-            }
+            specialEventLiveService.setRound(savedRound, '');
           }
         }
       });
     }
   }, [eventId, isSpecialEvent]);
+
+  const minRoundsAllowed = Math.max(1, currentRoundNumber);
+
+  const handleUpdateTotalRounds = async (newCount) => {
+    const validCount = Math.max(minRoundsAllowed, Math.min(50, Number(newCount) || minRoundsAllowed));
+    setTotalRoundsCount(validCount);
+    try {
+      localStorage.setItem(`eventora_total_rounds_${eventId}`, validCount.toString());
+    } catch (_) {}
+    try {
+      await specialEventService.saveSpecialEventSettings(eventId, {
+        roundsCount: validCount,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.warn('Failed to save total rounds to settings:', err);
+    }
+  };
 
   // Polling loop for live evaluation state sync when on Special Event
   useEffect(() => {
@@ -293,7 +323,6 @@ export default function WheelWorkspacePage() {
   }, [isSpecialEvent, currentRoundNumber, eventId]);
 
   const configuredRounds = specialSettings?.rounds || [];
-  const totalRoundsCount = configuredRounds.length || 2;
   const isFinalRound = currentRoundNumber >= totalRoundsCount;
 
   // Eligible participants (excluding temporary removals)
@@ -305,21 +334,28 @@ export default function WheelWorkspacePage() {
   const isEvalActive = liveState?.status === 'evaluating';
   const allCurrentEvaluatorsSubmitted = requiredEvaluators.length === 0 || submittedCount >= requiredEvaluators.length;
 
-  // Finish Event button should ONLY appear when:
+  const isAllRoundsCompleted =
+    isSpecialEvent &&
+    (isEventFinished ||
+     (isFinalRound &&
+      (removedIds.size >= totalRoundsCount || eligibleParticipants.length === 0) &&
+      (!isEvalActive || allCurrentEvaluatorsSubmitted)));
+
+  // Finish Event button should appear when:
   // 1. It is the final round (isFinalRound)
-  // 2. All participants on the wheel in this final round have been evaluated (eligibleParticipants.length === 0)
-  // 3. Both evaluators have completed their submissions for the final evaluation
+  // 2. All rounds have completed evaluation
   const canShowFinishEventButton =
+    isSpecialEvent &&
+    !isEventFinished &&
     isFinalRound &&
-    allParticipants.length > 0 &&
-    eligibleParticipants.length === 0 &&
+    (removedIds.size >= totalRoundsCount || eligibleParticipants.length === 0) &&
     (!isEvalActive || allCurrentEvaluatorsSubmitted);
 
   const currentRoundObj = configuredRounds.find(r => r.roundNumber === currentRoundNumber) || {
     roundNumber: currentRoundNumber,
     task: liveState?.roundTask || ''
   };
-  const currentRoundTask = currentRoundObj.task || '';
+  const currentRoundTask = liveState?.roundTask || currentRoundObj.task || '';
 
   const handleOpenDetailedReport = async () => {
     try {
@@ -411,7 +447,7 @@ export default function WheelWorkspacePage() {
     }
   };
 
-  const handleStartEvaluation = async (winner) => {
+  const handleStartEvaluation = async (winner, taskOverride) => {
     // Immediately remove from wheel and dropdown upon sending to evaluation
     setRemovedIds(prev => {
       const next = new Set([...prev, winner.id]);
@@ -424,28 +460,47 @@ export default function WheelWorkspacePage() {
       return next;
     });
 
+    const taskToUse = (taskOverride !== undefined && taskOverride !== null && taskOverride !== '')
+      ? taskOverride
+      : currentRoundTask;
+
+    if (taskToUse) {
+      setSpecialSettings(prev => {
+        if (!prev) return prev;
+        const roundsCopy = [...(prev.rounds || [])];
+        const rIdx = roundsCopy.findIndex(r => r.roundNumber === currentRoundNumber);
+        if (rIdx >= 0) {
+          roundsCopy[rIdx] = { ...roundsCopy[rIdx], task: taskToUse };
+        } else {
+          roundsCopy.push({ roundNumber: currentRoundNumber, task: taskToUse });
+        }
+        return { ...prev, rounds: roundsCopy };
+      });
+    }
+
     const updated = await specialEventLiveService.startEvaluation({
       student: winner,
       roundNumber: currentRoundNumber,
-      roundTask: currentRoundTask
+      roundTask: taskToUse
     });
-    if (updated) setLiveState(updated);
+    if (updated) {
+      setLiveState(updated);
+    } else {
+      setLiveState(prev => ({
+        ...(prev || {}),
+        eventId,
+        status: 'evaluating',
+        currentRound: currentRoundNumber,
+        roundTask: taskToUse,
+        currentStudent: winner,
+        submissions: {},
+        requiredEvaluators: prev?.requiredEvaluators || []
+      }));
+    }
   };
 
   const handleManualSendToEvaluation = async (participant) => {
     if (!participant) return;
-
-    // Immediately remove from wheel and dropdown
-    setRemovedIds(prev => {
-      const next = new Set([...prev, participant.id]);
-      try {
-        localStorage.setItem(
-          `eventora_removed_${eventId}_r${currentRoundNumber}`,
-          JSON.stringify([...next])
-        );
-      } catch (_) {}
-      return next;
-    });
 
     setCurrentWinner(participant);
     setAssignedTask(null);
@@ -500,14 +555,6 @@ export default function WheelWorkspacePage() {
     }).catch(err => {
       console.error('Failed to log manual selection to Supabase:', err);
     });
-
-    // Start live evaluation
-    const updated = await specialEventLiveService.startEvaluation({
-      student: participant,
-      roundNumber: currentRoundNumber,
-      roundTask: currentRoundTask
-    });
-    if (updated) setLiveState(updated);
   };
 
   // Load participants
@@ -528,7 +575,7 @@ export default function WheelWorkspacePage() {
 
   // Spin trigger
   const handleTriggerSpin = () => {
-    if (isSpinning || eligibleParticipants.length === 0) return;
+    if (isSpinning || eligibleParticipants.length === 0 || isAllRoundsCompleted) return;
     if (eligibleParticipants.length === 1) {
       // If only one person left in the wheel, don't spin it, immediately show the things for it!
       handleSpinEnd(eligibleParticipants[0]);
@@ -625,11 +672,38 @@ export default function WheelWorkspacePage() {
   const handleNextSpinWithRemoval = async (winner) => {
     clearPendingWinner();
     if (isSpecialEvent) {
-      await specialEventLiveService.finishStudent();
+      try {
+        await specialEventLiveService.finishStudent();
+      } catch (_) {}
     }
     const newRemoved = winner?.id ? new Set([...removedIds, winner.id]) : removedIds;
     setRemovedIds(newRemoved);
     setIsWinnerDialogOpen(false);
+
+    // If Special Event: round 1 is finished, so advance to next round!
+    if (isSpecialEvent) {
+      if (currentRoundNumber < totalRoundsCount) {
+        const nextRound = currentRoundNumber + 1;
+        setCurrentRoundNumber(nextRound);
+        try {
+          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
+        } catch (_) {}
+        try {
+          await specialEventLiveService.setRound(nextRound, '');
+        } catch (_) {}
+        setLiveState(prev => prev ? {
+          ...prev,
+          currentRound: nextRound,
+          roundTask: '',
+          status: 'waiting',
+          currentStudent: null,
+          submissions: {}
+        } : prev);
+      } else {
+        setIsFinishedPopupOpen(true);
+        return;
+      }
+    }
 
     const remaining = allParticipants.filter(p => !newRemoved.has(p.id));
     if (remaining.length === 1) {
@@ -649,9 +723,37 @@ export default function WheelWorkspacePage() {
   const handleNextSpinKeepWinner = async () => {
     clearPendingWinner();
     if (isSpecialEvent) {
-      await specialEventLiveService.finishStudent();
+      try {
+        await specialEventLiveService.finishStudent();
+      } catch (_) {}
     }
     setIsWinnerDialogOpen(false);
+
+    // If Special Event: Advance round!
+    if (isSpecialEvent) {
+      if (currentRoundNumber < totalRoundsCount) {
+        const nextRound = currentRoundNumber + 1;
+        setCurrentRoundNumber(nextRound);
+        try {
+          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
+        } catch (_) {}
+        try {
+          await specialEventLiveService.setRound(nextRound, '');
+        } catch (_) {}
+        setLiveState(prev => prev ? {
+          ...prev,
+          currentRound: nextRound,
+          roundTask: '',
+          status: 'waiting',
+          currentStudent: null,
+          submissions: {}
+        } : prev);
+      } else {
+        setIsFinishedPopupOpen(true);
+        return;
+      }
+    }
+
     if (eligibleParticipants.length === 1) {
       setTimeout(() => {
         handleSpinEnd(eligibleParticipants[0]);
@@ -665,9 +767,68 @@ export default function WheelWorkspacePage() {
     }
   };
 
-  const handleRemoveWinner = (winner) => {
+  const handleManualSelectNext = async (winner) => {
     clearPendingWinner();
-    setRemovedIds(prev => new Set([...prev, winner.id]));
+    if (isSpecialEvent) {
+      try {
+        await specialEventLiveService.finishStudent();
+      } catch (_) {}
+    }
+    const newRemoved = winner?.id ? new Set([...removedIds, winner.id]) : removedIds;
+    setRemovedIds(newRemoved);
+    setIsWinnerDialogOpen(false);
+
+    // If Special Event: Advance round to Round 2 (or next round) without auto-spinning!
+    if (isSpecialEvent) {
+      if (currentRoundNumber < totalRoundsCount) {
+        const nextRound = currentRoundNumber + 1;
+        setCurrentRoundNumber(nextRound);
+        try {
+          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
+        } catch (_) {}
+        try {
+          await specialEventLiveService.setRound(nextRound, '');
+        } catch (_) {}
+        setLiveState(prev => prev ? {
+          ...prev,
+          currentRound: nextRound,
+          roundTask: '',
+          status: 'waiting',
+          currentStudent: null,
+          submissions: {}
+        } : prev);
+      } else {
+        setIsFinishedPopupOpen(true);
+      }
+    }
+  };
+
+  const handleRemoveWinner = async (winner) => {
+    clearPendingWinner();
+    if (!winner?.id) return;
+    const newRemoved = new Set([...removedIds, winner.id]);
+    setRemovedIds(newRemoved);
+
+    if (isSpecialEvent && isEvalActive && allCurrentEvaluatorsSubmitted) {
+      if (currentRoundNumber < totalRoundsCount) {
+        const nextRound = currentRoundNumber + 1;
+        setCurrentRoundNumber(nextRound);
+        try {
+          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
+        } catch (_) {}
+        try {
+          await specialEventLiveService.setRound(nextRound, '');
+        } catch (_) {}
+        setLiveState(prev => prev ? {
+          ...prev,
+          currentRound: nextRound,
+          roundTask: '',
+          status: 'waiting',
+          currentStudent: null,
+          submissions: {}
+        } : prev);
+      }
+    }
   };
 
   const handleResetExclusions = () => {
@@ -698,7 +859,7 @@ export default function WheelWorkspacePage() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-sm text-white">
-                  Round {currentRoundNumber} {configuredRounds.length > 0 ? `of ${configuredRounds.length}` : ''}
+                  Round {currentRoundNumber} of {totalRoundsCount}
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wider bg-violet-500/20 text-violet-300 border border-violet-500/30">
                   Live Sync
@@ -706,35 +867,53 @@ export default function WheelWorkspacePage() {
               </div>
               <p className="text-xs text-violet-200/90 mt-0.5">
                 {currentRoundTask ? (
-                  <span><strong>Task:</strong> {currentRoundTask}</span>
+                  <span><strong>Current Task:</strong> {currentRoundTask}</span>
                 ) : (
-                  <span className="text-gray-400">Configure round tasks in Settings tab</span>
+                  <span className="text-gray-400">Spin the wheel or click Next to enter task for Round {currentRoundNumber}</span>
                 )}
               </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Current Round Badge - Shows Current Round Only */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Total Rounds Count Stepper */}
+            <div className="flex items-center gap-2 bg-[#1A1D2D] px-3 py-1.5 rounded-xl border border-gray-800">
+              <span className="text-[11px] font-bold text-gray-400">Total Rounds:</span>
+              <button
+                type="button"
+                onClick={() => handleUpdateTotalRounds(totalRoundsCount - 1)}
+                disabled={totalRoundsCount <= minRoundsAllowed || isEventFinished}
+                className="w-6 h-6 rounded-lg bg-gray-800 hover:bg-gray-700 text-white flex items-center justify-center font-bold text-xs disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                title={
+                  isEventFinished
+                    ? 'Event has concluded'
+                    : totalRoundsCount <= minRoundsAllowed
+                    ? `Cannot decrease below Round ${minRoundsAllowed}`
+                    : 'Decrease total rounds'
+                }
+              >
+                -
+              </button>
+              <span className="font-extrabold text-xs text-violet-400 px-1">{totalRoundsCount}</span>
+              <button
+                type="button"
+                onClick={() => handleUpdateTotalRounds(totalRoundsCount + 1)}
+                disabled={isEventFinished}
+                className="w-6 h-6 rounded-lg bg-gray-800 hover:bg-gray-700 text-white flex items-center justify-center font-bold text-xs disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                title={isEventFinished ? 'Event has concluded' : 'Increase total rounds'}
+              >
+                +
+              </button>
+            </div>
+
+            {/* Current Round Badge */}
             <div className="flex items-center bg-[#1A1D2D] p-1 rounded-xl border border-gray-800">
               <span className="px-3.5 py-1.5 rounded-lg text-xs font-bold bg-violet-600 text-white shadow-xs">
-                Round {currentRoundNumber}
+                Round {currentRoundNumber} / {totalRoundsCount}
               </span>
             </div>
 
-            {/* Advance to next round if round has ended and not the final round */}
-            {!isEventFinished && eligibleParticipants.length === 0 && !isFinalRound && (
-              <button
-                type="button"
-                onClick={() => handleSwitchRound(currentRoundNumber + 1, true)}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 flex items-center gap-2 transition-colors cursor-pointer"
-              >
-                <RotateCw className="w-4 h-4" />
-                <span>Advance to Round {currentRoundNumber + 1} & Reset Wheel</span>
-              </button>
-            )}
-
-            {/* When not finished and on the final round: Finish Event button ONLY when final evaluations are done */}
+            {/* Finish Event button */}
             {!isEventFinished ? (
               canShowFinishEventButton && (
                 <button
@@ -748,7 +927,6 @@ export default function WheelWorkspacePage() {
                 </button>
               )
             ) : (
-              /* Once finished: remove finish button and show report button! */
               <button
                 type="button"
                 onClick={handleOpenDetailedReport}
@@ -831,6 +1009,10 @@ export default function WheelWorkspacePage() {
               eligibleParticipants={eligibleParticipants}
               onManualSendToEvaluation={handleManualSendToEvaluation}
               isEvalLocked={isEvalActive && !allCurrentEvaluatorsSubmitted}
+              totalRounds={totalRoundsCount}
+              onChangeTotalRounds={handleUpdateTotalRounds}
+              currentRound={currentRoundNumber}
+              isAllRoundsCompleted={isAllRoundsCompleted}
             />
 
             <WheelHistoryDrawer
@@ -862,8 +1044,11 @@ export default function WheelWorkspacePage() {
         isSpecialEvent={isSpecialEvent}
         currentRound={currentRoundNumber}
         currentRoundTask={currentRoundTask}
+        totalRounds={totalRoundsCount}
         liveState={liveState}
         onStartEvaluation={handleStartEvaluation}
+        onFinishEvent={handleFinishEventClick}
+        onManualSelectNext={handleManualSelectNext}
       />
 
       <ConfirmDialog
