@@ -30,7 +30,9 @@ import {
   Trophy,
   Lock,
   Eye,
-  XCircle
+  XCircle,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 import WheelCanvas from '../components/wheel/WheelCanvas';
@@ -212,6 +214,19 @@ function QuizPlayPageContent() {
   // Master Participants State (all enrolled students with cumulative marks)
   const [allParticipants, setAllParticipants] = useState([]);
   const [activeTab, setActiveTab] = useState(location.state?.tab || 'participants'); // 'participants' | 'wheel' | 'scoreboard'
+  const [showingIntro, setShowingIntro] = useState(null); // 'quiz' | 'round' | null
+  const [isFullscreen, setIsFullscreen] = useState(() => {
+    return Boolean(
+      location.state?.startQuiz ||
+      location.state?.fullscreen ||
+      location.pathname.endsWith('/wheel') ||
+      location.state?.tab === 'wheel'
+    );
+  });
+
+  const toggleFullscreen = () => {
+    setIsFullscreen(prev => !prev);
+  };
 
   // If there are no participants yet and we finished loading, keep user on participants tab
   useEffect(() => {
@@ -344,6 +359,19 @@ function QuizPlayPageContent() {
         setUsedQuestionIds(restoredUsedQIds);
         saveQuizSession(data.id, activeRoundNum, restoredUsedQIds, restoredRemovedIds);
 
+        // Check if starting quiz from hub with intro
+        if (location.state?.startQuiz) {
+          if (data.introMediaUrl) {
+            setShowingIntro('quiz');
+          } else if (currentRoundObj?.introMediaUrl) {
+            setShowingIntro('round');
+            setActiveTab('wheel');
+          } else {
+            setShowingIntro(null);
+            setActiveTab('wheel');
+          }
+        }
+
         if (data.name) {
           document.title = `${data.name} (Round ${activeRoundNum}) - Play | Eventora`;
         }
@@ -418,8 +446,15 @@ function QuizPlayPageContent() {
       document.title = `${quiz.name} (Round ${nextRoundNum}) - Play | Eventora`;
     }
 
-    // Switch to wheel tab ready to spin for the new round
-    setActiveTab('wheel');
+    // Switch to wheel tab or show round intro if configured, entering fullscreen by default
+    setIsFullscreen(true);
+    if (nextRoundObj?.introMediaUrl) {
+      setShowingIntro('round');
+      setActiveTab('wheel');
+    } else {
+      setShowingIntro(null);
+      setActiveTab('wheel');
+    }
   };
 
   // Finish Quiz handler
@@ -925,7 +960,13 @@ function QuizPlayPageContent() {
   const quizSlug = slugify(quiz.name) || quiz.id;
 
   return (
-    <div className="space-y-6 pb-12">
+    <div
+      className={`transition-all duration-200 ${
+        isFullscreen
+          ? 'fixed inset-0 z-50 overflow-y-auto bg-[#0F1117] text-[#F3F4F8] p-4 sm:p-6 lg:p-8 overscroll-contain space-y-6'
+          : 'space-y-6 pb-12'
+      }`}
+    >
       {/* Top Breadcrumb & Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
@@ -954,10 +995,48 @@ function QuizPlayPageContent() {
           </div>
         </div>
 
-        {/* Back to Edit Questions Button */}
-        <div className="flex items-center gap-2">
+        {/* Top Action Buttons: Fullscreen, Play Intro & Edit Questions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Fullscreen Toggle */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+              isFullscreen
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25 ring-1 ring-amber-400'
+                : 'bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+            }`}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen Presentation Mode'}
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>Exit Fullscreen</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>Fullscreen</span>
+              </>
+            )}
+          </button>
+
+          {(quiz.introMediaUrl || activeRoundObj?.introMediaUrl) && (
+            <button
+              type="button"
+              onClick={() => {
+                if (quiz.introMediaUrl) setShowingIntro('quiz');
+                else if (activeRoundObj?.introMediaUrl) setShowingIntro('round');
+              }}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-violet-50 dark:bg-violet-950/50 border border-violet-200/80 dark:border-violet-800/80 text-xs font-bold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors shadow-xs cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5 fill-violet-600" />
+              <span>Play Intro</span>
+            </button>
+          )}
+
           <Link
-            to={`/app/quiz/${quizSlug}`}
+            to={`/app/quiz/${quizSlug}/questions`}
             state={{ quizId: quiz.id, round: currentRound }}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-xs"
           >
@@ -971,9 +1050,12 @@ function QuizPlayPageContent() {
       <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-gray-100 dark:bg-[#161925] border border-gray-200 dark:border-gray-800 w-fit">
         <button
           type="button"
-          onClick={() => setActiveTab('participants')}
+          onClick={() => {
+            setShowingIntro(null);
+            setActiveTab('participants');
+          }}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'participants'
+            !showingIntro && activeTab === 'participants'
               ? 'bg-white dark:bg-[#202434] text-gray-900 dark:text-white shadow-xs'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
           }`}
@@ -989,11 +1071,17 @@ function QuizPlayPageContent() {
         <button
           type="button"
           disabled={allParticipants.length === 0}
-          onClick={() => allParticipants.length > 0 && setActiveTab('wheel')}
+          onClick={() => {
+            if (allParticipants.length > 0) {
+              setIsFullscreen(true);
+              setShowingIntro(null);
+              setActiveTab('wheel');
+            }
+          }}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             allParticipants.length === 0
               ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
-              : activeTab === 'wheel'
+              : !showingIntro && activeTab === 'wheel'
               ? 'bg-[#635BFF] text-white shadow-xs cursor-pointer'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
           }`}
@@ -1016,11 +1104,16 @@ function QuizPlayPageContent() {
         <button
           type="button"
           disabled={allParticipants.length === 0}
-          onClick={() => allParticipants.length > 0 && setActiveTab('scoreboard')}
+          onClick={() => {
+            if (allParticipants.length > 0) {
+              setShowingIntro(null);
+              setActiveTab('scoreboard');
+            }
+          }}
           className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             allParticipants.length === 0
               ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
-              : activeTab === 'scoreboard'
+              : !showingIntro && activeTab === 'scoreboard'
               ? 'bg-amber-500 text-white shadow-xs cursor-pointer'
               : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
           }`}
@@ -1035,6 +1128,102 @@ function QuizPlayPageContent() {
         </button>
       </div>
 
+      {/* ===================== INTRO PRESENTATION SCREEN ===================== */}
+      {showingIntro ? (
+        <div className="max-w-4xl mx-auto space-y-5 animate-in fade-in zoom-in-95 duration-200">
+          <div className="rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 p-6 sm:p-8 shadow-xl space-y-6">
+            {/* Header info */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100 dark:border-gray-800">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
+                    {showingIntro === 'quiz' ? 'Quiz Introduction' : `Round ${currentRound} Introduction`}
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
+                    {showingIntro === 'quiz' ? `${roundsList.length} Rounds` : typeDef.name}
+                  </span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white tracking-tight">
+                  {showingIntro === 'quiz' ? quiz.name : `Round ${currentRound}: ${typeDef.name}`}
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {showingIntro === 'quiz'
+                    ? (quiz.description || 'Welcome to the quiz! Enjoy the presentation below before we begin.')
+                    : (typeDef.description || 'Watch or listen to the round intro before beginning the wheel turns.')}
+                </p>
+              </div>
+
+              {/* Action Buttons: Fullscreen & Skip */}
+              <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={toggleFullscreen}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                    isFullscreen
+                      ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                      : 'bg-gray-50 dark:bg-[#12141F] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300'
+                  }`}
+                  title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+                >
+                  {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                  <span>{isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (showingIntro === 'quiz' && activeRoundObj?.introMediaUrl) {
+                      setShowingIntro('round');
+                    } else {
+                      setIsFullscreen(true);
+                      setShowingIntro(null);
+                      setActiveTab('wheel');
+                    }
+                  }}
+                  className="px-4 py-1.5 rounded-xl text-xs font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white bg-gray-50 dark:bg-[#12141F] border border-gray-200 dark:border-gray-800 transition-colors cursor-pointer"
+                >
+                  Skip Intro
+                </button>
+              </div>
+            </div>
+
+            {/* Media Player */}
+            <div className="rounded-2xl overflow-hidden bg-black/90 shadow-md">
+              <MediaViewer
+                mediaUrl={showingIntro === 'quiz' ? quiz.introMediaUrl : activeRoundObj?.introMediaUrl}
+                mediaType={showingIntro === 'quiz' ? (quiz.introMediaType || 'video') : (activeRoundObj?.introMediaType || 'video')}
+                autoPlay={true}
+                className="w-full max-h-[500px]"
+              />
+            </div>
+
+            {/* Bottom Proceed Controls */}
+            <div className="flex items-center justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (showingIntro === 'quiz' && activeRoundObj?.introMediaUrl) {
+                    setShowingIntro('round');
+                  } else {
+                    setIsFullscreen(true);
+                    setShowingIntro(null);
+                    setActiveTab('wheel');
+                  }
+                }}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-8 py-3.5 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-violet-500/25 hover:scale-[1.02] transition-all cursor-pointer"
+              >
+                <span>
+                  {showingIntro === 'quiz' && activeRoundObj?.introMediaUrl
+                    ? `Next: Round ${currentRound} Intro`
+                    : `Next: Proceed to Round ${currentRound} Wheel`}
+                </span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
       {/* ===================== TAB 1: PARTICIPANTS ===================== */}
       {activeTab === 'participants' && (
         <div className="space-y-5 animate-in fade-in duration-200">
@@ -1054,7 +1243,15 @@ function QuizPlayPageContent() {
             <div className="flex items-center justify-end pt-2">
               <button
                 type="button"
-                onClick={() => setActiveTab('wheel')}
+                onClick={() => {
+                  setIsFullscreen(true);
+                  if (activeRoundObj?.introMediaUrl) {
+                    setShowingIntro('round');
+                  } else {
+                    setShowingIntro(null);
+                    setActiveTab('wheel');
+                  }
+                }}
                 className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-[#635BFF]/25"
               >
                 <span>Next: Spin Wheel</span>
@@ -1154,7 +1351,7 @@ function QuizPlayPageContent() {
                     Set up questions for Round {currentRound} first, then come back here to spin the wheel.
                   </p>
                   <Link
-                    to={`/app/quiz/${quizSlug}`}
+                    to={`/app/quiz/${quizSlug}/questions`}
                     state={{ quizId: quiz.id, round: currentRound }}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer"
                   >
@@ -1501,6 +1698,8 @@ function QuizPlayPageContent() {
             )}
           </div>
         </div>
+      )}
+        </>
       )}
 
       {/* ===================== QUIZ QUESTION TURN MODAL ===================== */}

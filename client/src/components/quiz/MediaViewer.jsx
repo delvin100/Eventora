@@ -94,7 +94,7 @@ export default function MediaViewer({ mediaUrl, mediaType = 'image', className =
           src={info.embedUrl}
           title="Google Drive Video"
           className="w-full h-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           allowFullScreen
         />
       </div>
@@ -113,7 +113,8 @@ export default function MediaViewer({ mediaUrl, mediaType = 'image', className =
           src={info.embedUrl}
           title="Google Drive Audio"
           className="w-full h-36 sm:h-44 border-0"
-          allow="autoplay"
+          allow="autoplay; fullscreen"
+          allowFullScreen
         />
       </div>
     );
@@ -136,6 +137,8 @@ export default function MediaViewer({ mediaUrl, mediaType = 'image', className =
             src={info.embedUrl}
             title="Google Drive Image Preview"
             className="w-full aspect-video sm:aspect-square max-h-80 border-0 rounded-xl"
+            allow="fullscreen"
+            allowFullScreen
             onError={() => setLoadError(true)}
           />
         )}
@@ -151,7 +154,7 @@ export default function MediaViewer({ mediaUrl, mediaType = 'image', className =
           src={`${info.embedUrl}${autoPlay ? '?autoplay=1' : ''}`}
           title="Question Media Video"
           className="w-full h-full border-0"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           allowFullScreen
         />
       </div>

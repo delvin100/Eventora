@@ -15,12 +15,14 @@ import {
   BookOpen,
   Award,
   Clock,
-  Check
+  Check,
+  Settings
 } from 'lucide-react';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { formatDate } from '../utils/dateUtils';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import QuizSettingsModal from '../components/quiz/QuizSettingsModal';
 
 export default function QuizDashboardPage() {
   const navigate = useNavigate();
@@ -31,6 +33,13 @@ export default function QuizDashboardPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [quizToDelete, setQuizToDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [settingsQuiz, setSettingsQuiz] = useState(null);
+
+  const handleSaveQuizSettings = async (updatedFields) => {
+    if (!settingsQuiz?.id) return;
+    await quizService.updateQuiz(settingsQuiz.id, updatedFields);
+    await loadQuizzes();
+  };
 
   // New Quiz Form state
   const [newQuizName, setNewQuizName] = useState('');
@@ -209,9 +218,21 @@ export default function QuizDashboardPage() {
                 className="group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/70 dark:hover:border-violet-500/70 transition-all p-5 shadow-xs hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-0.5 cursor-pointer"
               >
                 <div className="space-y-3.5">
-                  {/* Top Delete button on top right */}
-                  <div className="flex items-center justify-end">
+                  {/* Top Action buttons on top right */}
+                  <div className="flex items-center justify-end gap-1">
                     <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSettingsQuiz(quiz);
+                      }}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/30 transition-colors cursor-pointer"
+                      title="Quiz Intro & Settings"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setQuizToDelete(quiz);
@@ -373,6 +394,14 @@ export default function QuizDashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Quiz Settings Modal */}
+      <QuizSettingsModal
+        quiz={settingsQuiz}
+        isOpen={Boolean(settingsQuiz)}
+        onClose={() => setSettingsQuiz(null)}
+        onSave={handleSaveQuizSettings}
+      />
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog

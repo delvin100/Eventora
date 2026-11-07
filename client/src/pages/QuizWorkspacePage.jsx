@@ -170,6 +170,8 @@ export default function QuizWorkspacePage() {
   const [isTypeConfirmed, setIsTypeConfirmed] = useState(false);
   const [selectedRoundType, setSelectedRoundType] = useState('');
   const [roundToDeleteNum, setRoundToDeleteNum] = useState(null);
+  const [roundIntroMediaUrl, setRoundIntroMediaUrl] = useState('');
+  const [roundIntroMediaType, setRoundIntroMediaType] = useState('video');
 
   // Status notification
   const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
@@ -236,6 +238,8 @@ export default function QuizWorkspacePage() {
 
         setIsTypeConfirmed(hasConfirmedType);
         setSelectedRoundType(activeRound.quizType || '');
+        setRoundIntroMediaUrl(activeRound.introMediaUrl || '');
+        setRoundIntroMediaType(activeRound.introMediaType || 'video');
 
         let rawQuestions = Array.isArray(activeRound.questions) && activeRound.questions.length > 0
           ? activeRound.questions
@@ -296,7 +300,9 @@ export default function QuizWorkspacePage() {
           ...r,
           quizType: selectedRoundType,
           isTypeConfirmed: isTypeConfirmed,
-          questions: sanitizedCurrentQuestions
+          questions: sanitizedCurrentQuestions,
+          introMediaUrl: roundIntroMediaUrl,
+          introMediaType: roundIntroMediaType
         };
       }
       return r;
@@ -308,6 +314,8 @@ export default function QuizWorkspacePage() {
         quizType: selectedRoundType,
         isTypeConfirmed: isTypeConfirmed,
         questions: sanitizedCurrentQuestions,
+        introMediaUrl: roundIntroMediaUrl,
+        introMediaType: roundIntroMediaType,
         isCompleted: false
       });
     }
@@ -320,6 +328,8 @@ export default function QuizWorkspacePage() {
       quizType: null,
       isTypeConfirmed: false,
       questions: [],
+      introMediaUrl: '',
+      introMediaType: 'video',
       isCompleted: false
     };
 
@@ -331,6 +341,8 @@ export default function QuizWorkspacePage() {
     setCurrentRound(targetRoundNum);
     setSelectedRoundType(targetRound.quizType || '');
     setIsTypeConfirmed(hasConfirmed);
+    setRoundIntroMediaUrl(targetRound.introMediaUrl || '');
+    setRoundIntroMediaType(targetRound.introMediaType || 'video');
 
     const rawQuestions = Array.isArray(targetRound.questions) && targetRound.questions.length > 0
       ? targetRound.questions
@@ -350,7 +362,9 @@ export default function QuizWorkspacePage() {
           ...r,
           quizType: selectedRoundType,
           isTypeConfirmed: isTypeConfirmed,
-          questions: sanitizedCurrentQuestions
+          questions: sanitizedCurrentQuestions,
+          introMediaUrl: roundIntroMediaUrl,
+          introMediaType: roundIntroMediaType
         };
       }
       return r;
@@ -362,6 +376,8 @@ export default function QuizWorkspacePage() {
         quizType: selectedRoundType,
         isTypeConfirmed: isTypeConfirmed,
         questions: sanitizedCurrentQuestions,
+        introMediaUrl: roundIntroMediaUrl,
+        introMediaType: roundIntroMediaType,
         isCompleted: false
       });
     }
@@ -375,6 +391,8 @@ export default function QuizWorkspacePage() {
       quizType: null,
       isTypeConfirmed: false,
       questions: [],
+      introMediaUrl: '',
+      introMediaType: 'video',
       isCompleted: false
     };
 
@@ -385,6 +403,8 @@ export default function QuizWorkspacePage() {
     setCurrentRound(nextRoundNumber);
     setSelectedRoundType('');
     setIsTypeConfirmed(false);
+    setRoundIntroMediaUrl('');
+    setRoundIntroMediaType('video');
     setQuestions([]);
 
     setStatusMsg({
@@ -547,7 +567,9 @@ export default function QuizWorkspacePage() {
             ...r,
             quizType: selectedRoundType,
             isTypeConfirmed: isTypeConfirmed,
-            questions: sanitizedQuestions
+            questions: sanitizedQuestions,
+            introMediaUrl: roundIntroMediaUrl,
+            introMediaType: roundIntroMediaType
           };
         }
         return r;
@@ -559,6 +581,8 @@ export default function QuizWorkspacePage() {
           quizType: selectedRoundType,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          introMediaUrl: roundIntroMediaUrl,
+          introMediaType: roundIntroMediaType,
           isCompleted: false
         });
       }
@@ -587,7 +611,7 @@ export default function QuizWorkspacePage() {
         document.title = `${quizName} | Eventora Quiz`;
         const slug = slugify(quizName);
         if (slug && quizId !== slug) {
-          navigate(`/app/quiz/${slug}`, { replace: true, state: { ...location.state, quizId: quiz.id, round: currentRound } });
+          navigate(`/app/quiz/${slug}/questions`, { replace: true, state: { ...location.state, quizId: quiz.id, round: currentRound } });
         }
       }
     } catch (err) {
@@ -615,7 +639,9 @@ export default function QuizWorkspacePage() {
             ...r,
             quizType: selectedRoundType,
             isTypeConfirmed: isTypeConfirmed,
-            questions: sanitizedQuestions
+            questions: sanitizedQuestions,
+            introMediaUrl: roundIntroMediaUrl,
+            introMediaType: roundIntroMediaType
           };
         }
         return r;
@@ -627,6 +653,8 @@ export default function QuizWorkspacePage() {
           quizType: selectedRoundType,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          introMediaUrl: roundIntroMediaUrl,
+          introMediaType: roundIntroMediaType,
           isCompleted: false
         });
       }
@@ -1051,7 +1079,12 @@ export default function QuizWorkspacePage() {
           <span>All Quizzes</span>
         </Link>
         <span className="text-gray-300 dark:text-gray-700">/</span>
-        <span className="text-gray-900 dark:text-white font-bold truncate max-w-xs">{quizName}</span>
+        <Link
+          to={`/app/quiz/${slugify(quizName) || quiz.id}`}
+          className="text-gray-900 dark:text-white font-bold hover:text-[#635BFF] transition-colors truncate max-w-xs"
+        >
+          {quizName}
+        </Link>
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <span className="text-[#635BFF] font-bold">Round {currentRound}</span>
       </nav>
@@ -1271,6 +1304,96 @@ export default function QuizWorkspacePage() {
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>
+      </div>
+
+      {/* Round Intro Media Attachment (Optional) */}
+      <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-sm space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-xl bg-violet-100 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                  Round {currentRound} Intro Media <span className="font-normal text-xs text-gray-400 lowercase">(optional)</span>
+                </h3>
+                <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                  Play an intro video, audio clip, or show an image before Round {currentRound} begins.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Media Type Tabs */}
+          <div className="flex items-center gap-1 bg-gray-50 dark:bg-[#12141F] p-0.5 rounded-xl border border-gray-200 dark:border-gray-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setRoundIntroMediaType('video')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                roundIntroMediaType === 'video'
+                  ? 'bg-[#635BFF] text-white shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <VideoIcon className="w-3.5 h-3.5" />
+              <span>Video</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoundIntroMediaType('audio')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                roundIntroMediaType === 'audio'
+                  ? 'bg-[#635BFF] text-white shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5" />
+              <span>Audio</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoundIntroMediaType('image')}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                roundIntroMediaType === 'image'
+                  ? 'bg-[#635BFF] text-white shadow-xs'
+                  : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
+              }`}
+            >
+              <ImageIcon className="w-3.5 h-3.5" />
+              <span>Image</span>
+            </button>
+          </div>
+        </div>
+
+        <input
+          type="url"
+          value={roundIntroMediaUrl}
+          onChange={(e) => setRoundIntroMediaUrl(e.target.value)}
+          placeholder={
+            roundIntroMediaType === 'video'
+              ? `Paste Google Drive video link, YouTube, Vimeo, or .mp4 URL for Round ${currentRound} intro...`
+              : roundIntroMediaType === 'audio'
+              ? `Paste Google Drive audio link or audio URL for Round ${currentRound} intro...`
+              : `Paste Google Drive image link or image URL for Round ${currentRound} intro...`
+          }
+          className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-[#12141F] text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400"
+        />
+
+        <p className="text-[10px] text-gray-400 dark:text-gray-500">
+          Supports <strong>Google Drive</strong> (ensure sharing is "Anyone with the link can view"), <strong>YouTube</strong>, <strong>Vimeo</strong>, or direct links. If left empty, Round {currentRound} starts directly at the wheel.
+        </p>
+
+        {roundIntroMediaUrl && (
+          <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+              Round {currentRound} Intro Preview
+            </div>
+            <div className="max-w-md rounded-xl overflow-hidden max-h-56">
+              <MediaViewer mediaUrl={roundIntroMediaUrl} mediaType={roundIntroMediaType} />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bulk Scoring & Timing Toolbar (Apply to all) */}

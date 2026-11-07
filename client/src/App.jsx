@@ -20,6 +20,7 @@ import SpecialEventsPage from './pages/SpecialEventsPage';
 import UsersManagementPage from './pages/UsersManagementPage';
 import AdminAllEventsPage from './pages/AdminAllEventsPage';
 import QuizDashboardPage from './pages/QuizDashboardPage';
+import QuizHubPage from './pages/QuizHubPage';
 import QuizWorkspacePage from './pages/QuizWorkspacePage';
 import QuizPlayPage from './pages/QuizPlayPage';
 import SettingsPage from './pages/SettingsPage';
@@ -73,7 +74,9 @@ export default function App() {
               <Route path="events" element={<EventsListPage />} />
               <Route path="events/new" element={<NewEventPage />} />
               <Route path="quiz" element={<QuizDashboardPage />} />
-              <Route path="quiz/:quizId" element={<QuizWorkspacePage />} />
+              <Route path="quiz/:quizId" element={<QuizHubPage />} />
+              <Route path="quiz/:quizId/questions" element={<QuizWorkspacePage />} />
+              <Route path="quiz/:quizId/setup" element={<QuizWorkspacePage />} />
               <Route path="quiz/:quizId/play" element={<QuizPlayPage />} />
               <Route path="quiz/:quizId/wheel" element={<QuizPlayPage />} />
               
