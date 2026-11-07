@@ -1020,8 +1020,8 @@ function QuizPlayPageContent() {
     <div
       className={`transition-all duration-200 ${
         isFullscreen
-          ? 'fixed inset-0 z-50 overflow-y-auto bg-[#0F1117] text-[#F3F4F8] p-4 sm:p-6 lg:p-8 overscroll-contain space-y-6'
-          : 'space-y-6 pb-12'
+          ? 'fixed inset-0 z-50 overflow-y-auto bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] p-4 sm:p-6 lg:p-8 overscroll-contain space-y-6'
+          : 'space-y-6 pb-12 text-[#171923] dark:text-[#F3F4F8]'
       }`}
     >
       {/* Top Breadcrumb & Header */}
@@ -1794,7 +1794,7 @@ function QuizPlayPageContent() {
           onWheel={(e) => e.stopPropagation()}
         >
           <div
-            className="relative w-full max-w-xl max-h-[92vh] overflow-y-auto overscroll-contain rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 p-6 sm:p-8 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 my-auto"
+            className="relative w-full max-w-xl max-h-[92vh] overflow-y-auto overscroll-contain rounded-3xl bg-white dark:bg-[#161925] text-gray-900 dark:text-white border border-gray-200 dark:border-gray-800 p-6 sm:p-8 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Top Bar */}
@@ -2001,7 +2001,7 @@ function QuizPlayPageContent() {
                         const isFirstWrong = optIdx === firstAttemptWrongIdx;
                         const isSecondAttempt = optIdx === secondAttemptIdx;
 
-                        let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
+                        let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-gray-900 dark:text-white hover:border-violet-500/60 cursor-pointer';
                         let isDisabled = hasAnswered;
                         let badge = null;
 
@@ -2028,7 +2028,7 @@ function QuizPlayPageContent() {
                                 </span>
                               );
                             } else {
-                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-gray-500 dark:text-gray-400 cursor-not-allowed';
                             }
                           } else if (attemptNumber === 1 && selectedOptionIdx === optIdx && isCorrect) {
                             cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
@@ -2073,10 +2073,10 @@ function QuizPlayPageContent() {
                                 </span>
                               );
                             } else {
-                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                              cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-gray-500 dark:text-gray-400 cursor-not-allowed';
                             }
                           } else {
-                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-gray-500 dark:text-gray-400 cursor-not-allowed';
                           }
                         }
 
@@ -2086,13 +2086,13 @@ function QuizPlayPageContent() {
                             type="button"
                             disabled={isDisabled}
                             onClick={() => handleSelectOption(optIdx)}
-                            className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${cardStyle}`}
+                            className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 text-gray-900 dark:text-white ${cardStyle}`}
                           >
-                            <div className="flex items-center gap-3 min-w-0">
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
                               <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
                                 {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
                               </span>
-                              <span className="text-xs font-semibold truncate">
+                              <span className="text-xs font-semibold text-gray-900 dark:text-white break-words">
                                 {optText}
                               </span>
                             </div>
@@ -2111,23 +2111,23 @@ function QuizPlayPageContent() {
                       const optText = typeof opt === 'string' ? opt : (opt?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`);
                       const optKey = (typeof opt === 'object' && opt?.id) ? opt.id : `q_opt_${optIdx}`;
 
-                      let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] hover:border-violet-500/60 cursor-pointer';
+                      let cardStyle = 'border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-gray-900 dark:text-white hover:border-violet-500/60 cursor-pointer';
 
                       if (hasAnswered) {
                         if (isTimedOut) {
                           if (isCorrect) {
                             cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
                           } else {
-                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                            cardStyle = 'opacity-40 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-gray-500 dark:text-gray-400 cursor-not-allowed';
                           }
                         } else if (isSelected && isCorrect) {
                           cardStyle = 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 font-bold';
                         } else if (isSelected && !isCorrect) {
                           cardStyle = 'border-rose-500 bg-rose-50 dark:bg-rose-950/40 text-rose-900 dark:text-rose-100 font-bold';
                         } else if (isCorrect) {
-                          cardStyle = 'border-emerald-500/60 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200';
+                          cardStyle = 'border-emerald-500/60 bg-emerald-50/40 dark:bg-emerald-950/20 text-emerald-800 dark:text-emerald-200 font-bold';
                         } else {
-                          cardStyle = 'opacity-50 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] cursor-not-allowed';
+                          cardStyle = 'opacity-50 border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#12141F] text-gray-500 dark:text-gray-400 cursor-not-allowed';
                         }
                       }
 
@@ -2137,13 +2137,13 @@ function QuizPlayPageContent() {
                           type="button"
                           disabled={hasAnswered}
                           onClick={() => handleSelectOption(optIdx)}
-                          className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 ${cardStyle}`}
+                          className={`w-full p-3.5 rounded-2xl border text-left transition-all flex items-center justify-between gap-3 text-gray-900 dark:text-white ${cardStyle}`}
                         >
-                          <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
                             <span className="w-7 h-7 rounded-xl bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-bold text-xs flex items-center justify-center shrink-0">
                               {OPTION_LETTERS[optIdx] || String.fromCharCode(65 + optIdx)}
                             </span>
-                            <span className="text-xs font-semibold truncate">
+                            <span className="text-xs font-semibold text-gray-900 dark:text-white break-words">
                               {optText}
                             </span>
                           </div>

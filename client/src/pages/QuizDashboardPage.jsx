@@ -214,7 +214,10 @@ export default function QuizDashboardPage() {
             return (
               <div
                 key={quiz.id}
-                onClick={() => navigate(`/app/quiz/${quizSlug}`, { state: { quizId: quiz.id } })}
+                onClick={() => {
+                  try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
+                  navigate(`/app/quiz/${quizSlug}`, { state: { quizId: quiz.id } });
+                }}
                 className="group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/70 dark:hover:border-violet-500/70 transition-all p-5 shadow-xs hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-0.5 cursor-pointer"
               >
                 <div className="space-y-3.5">

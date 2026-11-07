@@ -1198,6 +1198,115 @@ router.delete('/admin/quizzes/:quizId', async (req, res, next) => {
 });
 
 /**
+ * GET /api/v1/ps/quizzes/:idOrSlug
+ * Get any quiz by ID or slug with owner details (Admin & cross-user lookup)
+ */
+router.get('/quizzes/:idOrSlug', async (req, res, next) => {
+  try {
+    const { idOrSlug } = req.params;
+    if (!supabase || !idOrSlug) return res.status(404).json({ success: false, message: 'Not found' });
+
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
+
+    let quizData = null;
+    if (isUUID) {
+      const { data } = await supabase
+        .from('results')
+        .select('*')
+        .eq('id', idOrSlug)
+        .eq('operation_type', 'quiz')
+        .maybeSingle();
+      quizData = data;
+    } else {
+      const cleanName = decodeURIComponent(idOrSlug).replace(/[-_]+/g, ' ').trim();
+      const { data } = await supabase
+        .from('results')
+        .select('*')
+        .eq('operation_type', 'quiz')
+        .ilike('result_name', `%${cleanName}%`)
+        .maybeSingle();
+      quizData = data;
+    }
+
+    if (!quizData) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
+
+    // Fetch owner profile
+    let ownerProfile = null;
+    try {
+      const { data: prof } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', quizData.owner_id)
+        .maybeSingle();
+      ownerProfile = prof;
+    } catch (_) {}
+
+    let authUser = null;
+    try {
+      const { data: u } = await supabase.auth.admin.getUserById(quizData.owner_id);
+      authUser = u?.user;
+    } catch (_) {}
+
+    return res.json({
+      success: true,
+      quiz: {
+        ...quizData,
+        owner: {
+          id: quizData.owner_id,
+          displayName: ownerProfile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User',
+          email: authUser?.email || (ownerProfile?.display_name?.includes('@') ? ownerProfile.display_name : null) || 'user@eventora.app',
+          usageType: ownerProfile?.usage_type || authUser?.user_metadata?.usage_type || 'personal'
+        }
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/v1/ps/quizzes/:quizId
+ * Update any quiz by ID (Admin & owner cross-user updates)
+ */
+router.put('/quizzes/:quizId', async (req, res, next) => {
+  try {
+    const { quizId } = req.params;
+    if (!supabase || !quizId) return res.status(400).json({ success: false, message: 'Quiz ID required' });
+
+    const { name, settings, result_snapshot, email } = req.body;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const updatePayload = {};
+    if (name) updatePayload.result_name = name.trim();
+    if (settings) updatePayload.settings = settings;
+    if (result_snapshot) updatePayload.result_snapshot = result_snapshot;
+
+    const { data, error } = await supabase
+      .from('results')
+      .update(updatePayload)
+      .eq('id', quizId)
+      .eq('operation_type', 'quiz')
+      .select()
+      .maybeSingle();
+
+    if (error) throw error;
+    return res.json({ success: true, quiz: data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/v1/ps/events/:idOrSlug
  * Get any event by ID or slug with owner details (Admin & direct lookup)
  */

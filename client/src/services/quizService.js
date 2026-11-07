@@ -318,7 +318,20 @@ export const quizService = {
       } catch (_) {}
     }
 
-    // 2. Try Local Cache
+    // 2. Try Backend API (Admin cross-user lookup or server fallback)
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/quizzes/${encodeURIComponent(idOrSlug)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.quiz) {
+          return formatQuizRecord(json.quiz);
+        }
+      }
+    } catch (err) {
+      console.warn('Backend get-quiz API fetch failed, trying local cache:', err);
+    }
+
+    // 3. Try Local Cache
     const local = getLocalQuizzes(user?.id);
     if (isUUID) {
       const match = local.find(q => q && q.id === idOrSlug);
@@ -552,6 +565,26 @@ export const quizService = {
         }
 
         await query;
+
+        // Backend API fallback for admin cross-user updates (bypasses RLS)
+        if (isAdmin) {
+          try {
+            await fetch(`${API_BASE_URL}/ps/quizzes/${quizId}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                email: user?.email || '',
+                name: name ? name.trim() : undefined,
+                settings: updatedSettings,
+                result_snapshot: {
+                  questions: cleanQuestions,
+                  participants: cleanParticipants,
+                  rounds: cleanRounds
+                }
+              })
+            });
+          } catch (_) {}
+        }
       } catch (err) {
         console.warn('Supabase update quiz failed:', err);
       }

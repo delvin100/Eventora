@@ -91,10 +91,42 @@ export default function AppLayout() {
     }
   })();
 
+  // Synchronize admin quiz navigation session tracking
+  useEffect(() => {
+    if (location.pathname === '/app/quiz') {
+      try {
+        sessionStorage.removeItem('eventora_admin_quiz_active');
+      } catch (_) {}
+    } else if (location.pathname.startsWith('/app/admin/quizzes') || location.state?.fromAdminAllQuizzes) {
+      try {
+        sessionStorage.setItem('eventora_admin_quiz_active', 'true');
+      } catch (_) {}
+    }
+  }, [location.pathname, location.state]);
+
+  const isAdminQuizPath = (() => {
+    if (!isAdmin) return false;
+    if (location.pathname.startsWith('/app/admin/quizzes')) return true;
+    if (location.state?.fromAdminAllQuizzes) return true;
+    if (location.pathname.startsWith('/app/quiz') && location.pathname !== '/app/quiz') {
+      try {
+        return sessionStorage.getItem('eventora_admin_quiz_active') === 'true';
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  })();
+
   const getIsNavItemActive = (item) => {
     if (isSpecialEventPath) {
       if (item.to === '/app/special-events') return true;
       if (item.to === '/app/events') return false;
+      return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
+    }
+    if (isAdminQuizPath) {
+      if (item.to === '/app/admin/quizzes') return true;
+      if (item.to === '/app/quiz') return false;
       return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
     }
     return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
@@ -161,6 +193,13 @@ export default function AppLayout() {
                 key={item.name}
                 to={item.to}
                 state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
+                onClick={() => {
+                  if (item.to === '/app/quiz') {
+                    try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
+                  } else if (item.to === '/app/admin/quizzes') {
+                    try { sessionStorage.setItem('eventora_admin_quiz_active', 'true'); } catch (_) {}
+                  }
+                }}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
                   isActive ? activeClass : inactiveClass
                 }`}
@@ -259,7 +298,14 @@ export default function AppLayout() {
                     key={item.name}
                     to={item.to}
                     state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => {
+                      if (item.to === '/app/quiz') {
+                        try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
+                      } else if (item.to === '/app/admin/quizzes') {
+                        try { sessionStorage.setItem('eventora_admin_quiz_active', 'true'); } catch (_) {}
+                      }
+                      setMobileMenuOpen(false);
+                    }}
                     className={`flex items-center justify-between px-4 py-3 rounded-xl text-base transition-all ${mobileClass}`}
                   >
                     <div className="flex items-center gap-3">
