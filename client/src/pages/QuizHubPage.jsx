@@ -14,13 +14,15 @@ import {
   Music,
   Image as ImageIcon,
   CheckCircle2,
-  RotateCcw
+  RotateCcw,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { quizService } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import QuizSettingsModal from '../components/quiz/QuizSettingsModal';
+import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
 
 export default function QuizHubPage() {
   const { user } = useAuth();
@@ -35,6 +37,7 @@ export default function QuizHubPage() {
   const [isResetDialogOpen, setIsResetDialogOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
 
   const fetchQuiz = async () => {
     try {
@@ -77,6 +80,75 @@ export default function QuizHubPage() {
       console.error('Failed to reset quiz progress:', err);
     } finally {
       setResetting(false);
+    }
+  };
+
+  const handleImportExcelData = async ({ rounds: importedRounds, mode, scope, targetRoundNumber }) => {
+    if (!quiz?.id || !importedRounds || importedRounds.length === 0) return;
+
+    try {
+      const currentRounds = quiz.rounds || [];
+      let mergedRounds = [...currentRounds];
+
+      if (scope === 'single') {
+        const roundNum = targetRoundNumber || 1;
+        const importedRound = importedRounds[0];
+        const newQuestions = importedRound?.questions || [];
+
+        const existingIdx = mergedRounds.findIndex(r => r.roundNumber === roundNum);
+        if (existingIdx >= 0) {
+          const targetR = mergedRounds[existingIdx];
+          const finalQuestions = mode === 'append'
+            ? [...(targetR.questions || []), ...newQuestions]
+            : newQuestions;
+
+          mergedRounds[existingIdx] = {
+            ...targetR,
+            quizType: importedRound?.quizType || targetR.quizType,
+            questions: finalQuestions,
+            isTypeConfirmed: true
+          };
+        } else {
+          mergedRounds.push({
+            roundNumber: roundNum,
+            name: `Round ${roundNum}`,
+            title: `Round ${roundNum}`,
+            quizType: importedRound?.quizType || quiz.quizType || 'one_question_one_chance',
+            isTypeConfirmed: true,
+            questions: newQuestions,
+            introMediaUrl: importedRound?.introMediaUrl || '',
+            introMediaType: importedRound?.introMediaType || 'video',
+            isCompleted: false
+          });
+        }
+        mergedRounds.sort((a, b) => a.roundNumber - b.roundNumber);
+      } else {
+        if (mode === 'append') {
+          const highestExistingRoundNum = currentRounds.reduce((max, r) => Math.max(max, r.roundNumber || 0), 0);
+          const remappedImported = importedRounds.map((r, idx) => ({
+            ...r,
+            roundNumber: highestExistingRoundNum + idx + 1,
+            title: r.title ? r.title : `Round ${highestExistingRoundNum + idx + 1}`,
+            name: r.title ? r.title : `Round ${highestExistingRoundNum + idx + 1}`
+          }));
+          mergedRounds = [...currentRounds, ...remappedImported];
+        } else {
+          mergedRounds = importedRounds;
+        }
+      }
+
+      const firstRound = mergedRounds[0];
+
+      await quizService.updateQuiz(quiz.id, {
+        rounds: mergedRounds,
+        quizType: firstRound?.quizType || quiz.quizType,
+        questions: firstRound?.questions || []
+      });
+
+      await fetchQuiz();
+    } catch (err) {
+      console.error('Failed to import Excel into quiz:', err);
+      throw err;
     }
   };
 
@@ -140,6 +212,16 @@ export default function QuizHubPage() {
 
         {/* Top Right Action buttons */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsExcelImportOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-emerald-200 dark:border-emerald-800/80 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 text-xs font-bold transition-all cursor-pointer shadow-xs"
+            title="Upload an Excel sheet to bulk import rounds and questions"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+            <span>Import Excel</span>
+          </button>
+
           {canReset && (
             <button
               type="button"
@@ -231,9 +313,23 @@ export default function QuizHubPage() {
           </div>
 
           <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between">
-            <span className="text-xs font-semibold text-gray-400">
-              {totalQuestions} questions
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-semibold text-gray-400">
+                {totalQuestions} questions
+              </span>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsExcelImportOpen(true);
+                }}
+                className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                title="Import questions from Excel"
+              >
+                <FileSpreadsheet className="w-3 h-3" />
+                <span>Import Excel</span>
+              </button>
+            </div>
             <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#635BFF] group-hover:translate-x-0.5 transition-transform">
               <span>Setup Questions</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -320,6 +416,14 @@ export default function QuizHubPage() {
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSave={handleSaveSettings}
+      />
+
+      {/* Excel Bulk Import Modal */}
+      <QuizExcelImportModal
+        isOpen={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        onImport={handleImportExcelData}
+        currentRoundsCount={quiz?.rounds?.length || 1}
       />
 
       {/* Reset Progress Confirmation Dialog */}

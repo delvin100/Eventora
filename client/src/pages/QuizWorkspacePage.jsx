@@ -24,13 +24,15 @@ import {
   Image as ImageIcon,
   Music,
   Video as VideoIcon,
-  Link as LinkIcon
+  Link as LinkIcon,
+  FileSpreadsheet
 } from 'lucide-react';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import StylishQuizTypeDropdown from '../components/quiz/StylishQuizTypeDropdown';
 import MediaViewer from '../components/quiz/MediaViewer';
+import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
@@ -175,6 +177,137 @@ export default function QuizWorkspacePage() {
 
   // Status notification
   const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [excelImportTargetRound, setExcelImportTargetRound] = useState(null);
+
+  const openExcelImportModal = (targetRound = null) => {
+    setExcelImportTargetRound(targetRound !== null ? targetRound : currentRound);
+    setIsExcelImportOpen(true);
+  };
+
+  const handleImportExcelData = async ({ rounds: importedRounds, mode, scope, targetRoundNumber }) => {
+    const targetQuizId = quiz?.id || location.state?.quizId || quizId;
+    if (!targetQuizId || !importedRounds || importedRounds.length === 0) return;
+
+    try {
+      setSaving(true);
+      let updatedRounds = [...rounds];
+
+      if (scope === 'single') {
+        const roundNum = targetRoundNumber || currentRound;
+        const importedRound = importedRounds[0];
+        const newQuestions = importedRound?.questions || [];
+
+        const existingRoundIdx = updatedRounds.findIndex(r => r.roundNumber === roundNum);
+        if (existingRoundIdx >= 0) {
+          const targetR = updatedRounds[existingRoundIdx];
+          const finalQuestions = mode === 'append'
+            ? [...(targetR.questions || []), ...newQuestions]
+            : newQuestions;
+
+          updatedRounds[existingRoundIdx] = {
+            ...targetR,
+            quizType: importedRound?.quizType || targetR.quizType,
+            questions: finalQuestions,
+            isTypeConfirmed: true
+          };
+        } else {
+          updatedRounds.push({
+            roundNumber: roundNum,
+            name: `Round ${roundNum}`,
+            title: `Round ${roundNum}`,
+            quizType: importedRound?.quizType || selectedRoundType || 'one_question_one_chance',
+            isTypeConfirmed: true,
+            questions: newQuestions,
+            introMediaUrl: importedRound?.introMediaUrl || '',
+            introMediaType: importedRound?.introMediaType || 'video',
+            isCompleted: false
+          });
+        }
+
+        updatedRounds.sort((a, b) => a.roundNumber - b.roundNumber);
+        setRounds(updatedRounds);
+
+        if (currentRound === roundNum) {
+          const targetR = updatedRounds.find(r => r.roundNumber === roundNum);
+          setQuestions(targetR?.questions || []);
+          if (targetR?.quizType) {
+            setSelectedRoundType(targetR.quizType);
+          }
+          setIsTypeConfirmed(true);
+        }
+
+        await quizService.updateQuiz(targetQuizId, {
+          name: quizName,
+          description: quizDescription,
+          quizType: selectedRoundType,
+          currentRound,
+          rounds: updatedRounds,
+          questions: currentRound === roundNum
+            ? (updatedRounds.find(r => r.roundNumber === roundNum)?.questions || [])
+            : questions,
+          introMediaUrl: quiz?.introMediaUrl,
+          introMediaType: quiz?.introMediaType
+        });
+
+        setStatusMsg({
+          type: 'success',
+          text: `Successfully imported ${newQuestions.length} questions into Round ${roundNum} from Excel!`
+        });
+      } else {
+        // Multi-round import
+        let mergedRounds = [];
+        if (mode === 'append') {
+          const highestExistingRoundNum = rounds.reduce((max, r) => Math.max(max, r.roundNumber || 0), 0);
+          const remappedImported = importedRounds.map((r, idx) => ({
+            ...r,
+            roundNumber: highestExistingRoundNum + idx + 1,
+            title: r.title ? r.title : `Round ${highestExistingRoundNum + idx + 1}`,
+            name: r.title ? r.title : `Round ${highestExistingRoundNum + idx + 1}`
+          }));
+          mergedRounds = [...rounds, ...remappedImported];
+        } else {
+          mergedRounds = importedRounds;
+        }
+
+        setRounds(mergedRounds);
+
+        const activeRoundObj = mergedRounds.find(r => r.roundNumber === currentRound) || mergedRounds[0];
+        if (activeRoundObj) {
+          setCurrentRound(activeRoundObj.roundNumber);
+          setSelectedRoundType(activeRoundObj.quizType);
+          setIsTypeConfirmed(true);
+          setQuestions(activeRoundObj.questions || []);
+          setRoundIntroMediaUrl(activeRoundObj.introMediaUrl || '');
+          setRoundIntroMediaType(activeRoundObj.introMediaType || 'video');
+        }
+
+        await quizService.updateQuiz(targetQuizId, {
+          name: quizName,
+          description: quizDescription,
+          quizType: activeRoundObj?.quizType || selectedRoundType,
+          currentRound: activeRoundObj ? activeRoundObj.roundNumber : 1,
+          rounds: mergedRounds,
+          questions: activeRoundObj?.questions || [],
+          introMediaUrl: quiz?.introMediaUrl,
+          introMediaType: quiz?.introMediaType
+        });
+
+        const totalImportedQs = importedRounds.reduce((sum, r) => sum + r.questions.length, 0);
+        setStatusMsg({
+          type: 'success',
+          text: `Successfully imported ${totalImportedQs} questions across ${importedRounds.length} rounds from Excel!`
+        });
+      }
+
+      setTimeout(() => setStatusMsg({ type: '', text: '' }), 5000);
+    } catch (err) {
+      console.error('Failed to apply Excel import:', err);
+      setStatusMsg({ type: 'error', text: 'Import failed: ' + (err.message || 'Unknown error') });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => {
     let isCancelled = false;
@@ -527,10 +660,14 @@ export default function QuizWorkspacePage() {
       try {
         setSaving(true);
         await quizService.updateQuiz(targetQuizId, {
+          name: quizName,
+          description: quizDescription,
           quizType: selectedRoundType,
           currentRound,
           rounds: updatedRounds,
-          questions: defaultQ
+          questions: defaultQ,
+          introMediaUrl: quiz?.introMediaUrl,
+          introMediaType: quiz?.introMediaType
         });
 
         setStatusMsg({
@@ -599,7 +736,9 @@ export default function QuizWorkspacePage() {
         defaultTimeUnit,
         currentRound,
         rounds: updatedRounds,
-        questions: sanitizedQuestions
+        questions: sanitizedQuestions,
+        introMediaUrl: quiz?.introMediaUrl,
+        introMediaType: quiz?.introMediaType
       });
 
       setSaveSuccess(true);
@@ -673,7 +812,9 @@ export default function QuizWorkspacePage() {
         defaultTimeUnit,
         currentRound: 1, // Start quiz from Round 1
         rounds: updatedRounds,
-        questions: round1?.questions || sanitizedQuestions
+        questions: round1?.questions || sanitizedQuestions,
+        introMediaUrl: quiz?.introMediaUrl,
+        introMediaType: quiz?.introMediaType
       });
 
       const slug = slugify(quizName) || targetQuizId;
@@ -1244,6 +1385,16 @@ export default function QuizWorkspacePage() {
                   >
                     <span>Change Type</span>
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={() => openExcelImportModal(currentRound)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-all cursor-pointer shadow-xs shrink-0"
+                    title={`Import an Excel spreadsheet directly into Round ${currentRound}`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Import Round {currentRound} Excel</span>
+                  </button>
                 </span>
               </div>
 
@@ -1268,6 +1419,16 @@ export default function QuizWorkspacePage() {
 
         {/* Metrics & Save Button */}
         <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsExcelImportOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl font-semibold text-xs bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer shadow-xs"
+            title="Upload an Excel sheet to bulk import rounds and questions"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Import Excel</span>
+          </button>
+
           <div className="px-3.5 py-2 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-200 dark:border-gray-800 text-center">
             <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">Questions</span>
             <span className="text-sm font-bold text-gray-900 dark:text-white">{questions.length}</span>
@@ -1891,14 +2052,24 @@ export default function QuizWorkspacePage() {
         })}
 
         {/* Add Question CTA button */}
-        <div className="pt-2">
+        <div className="pt-2 flex flex-col sm:flex-row items-center gap-2.5">
           <button
             type="button"
             onClick={handleAddQuestion}
-            className="w-full py-4 rounded-2xl border-2 border-dashed border-violet-300 dark:border-violet-900/60 hover:border-violet-500 dark:hover:border-violet-500 hover:bg-violet-50/50 dark:hover:bg-violet-950/20 text-violet-700 dark:text-violet-300 text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+            className="flex-1 w-full py-4 rounded-2xl border-2 border-dashed border-violet-300 dark:border-violet-900/60 hover:border-violet-500 dark:hover:border-violet-500 hover:bg-violet-50/50 dark:hover:bg-violet-950/20 text-violet-700 dark:text-violet-300 text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
           >
             <Plus className="w-4 h-4" />
             <span>Add Another Question</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => openExcelImportModal(currentRound)}
+            className="w-full sm:w-auto px-5 py-4 rounded-2xl border-2 border-dashed border-emerald-300 dark:border-emerald-900/60 hover:border-emerald-500 dark:hover:border-emerald-500 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs shrink-0"
+            title={`Import questions from Excel directly into Round ${currentRound}`}
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+            <span>Import Round {currentRound} Excel (.xlsx)</span>
           </button>
         </div>
       </div>
@@ -1960,6 +2131,15 @@ export default function QuizWorkspacePage() {
         onConfirm={() => handleDeleteQuestion(questionToDeleteIdx)}
         onCancel={() => setQuestionToDeleteIdx(null)}
         onClose={() => setQuestionToDeleteIdx(null)}
+      />
+
+      {/* Excel Bulk Import Modal */}
+      <QuizExcelImportModal
+        isOpen={isExcelImportOpen}
+        onClose={() => setIsExcelImportOpen(false)}
+        onImport={handleImportExcelData}
+        targetRoundNumber={excelImportTargetRound}
+        currentRoundsCount={rounds.length}
       />
     </div>
   );

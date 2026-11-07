@@ -25,7 +25,8 @@ export default function QuizSettingsModal({ quiz, isOpen, onClose, onSave }) {
         name: name.trim(),
         description: description.trim(),
         introMediaUrl: introMediaUrl.trim(),
-        introMediaType
+        introMediaType,
+        rounds: quiz.rounds || []
       });
       onClose();
     } catch (err) {

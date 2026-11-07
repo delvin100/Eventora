@@ -1286,10 +1286,65 @@ router.put('/quizzes/:quizId', async (req, res, next) => {
       } catch (_) {}
     }
 
-    const updatePayload = {};
+    // 1. Fetch existing quiz row first to safely merge and never erase rounds/questions
+    const { data: existingQuiz, error: fetchErr } = await supabase
+      .from('results')
+      .select('*')
+      .eq('id', quizId)
+      .eq('operation_type', 'quiz')
+      .maybeSingle();
+
+    if (fetchErr) throw fetchErr;
+    if (!existingQuiz) {
+      return res.status(404).json({ success: false, message: 'Quiz not found' });
+    }
+
+    const existingSettings = existingQuiz.settings || {};
+    const existingSnapshot = existingQuiz.result_snapshot || {};
+
+    // 2. Safe merge settings
+    const mergedSettings = settings ? {
+      ...existingSettings,
+      ...settings,
+      // If new settings doesn't supply rounds or sends empty, but existing had rounds, PRESERVE them!
+      rounds: (Array.isArray(settings.rounds) && settings.rounds.length > 0)
+        ? settings.rounds
+        : (existingSettings.rounds || existingSnapshot.rounds || []),
+      // Preserve intro media if not explicitly updated
+      introMediaUrl: settings.introMediaUrl !== undefined ? settings.introMediaUrl : (existingSettings.introMediaUrl || ''),
+      introMediaType: settings.introMediaType !== undefined ? settings.introMediaType : (existingSettings.introMediaType || 'video'),
+      updated_at: new Date().toISOString()
+    } : existingSettings;
+
+    // 3. Safe merge result_snapshot
+    const mergedSnapshot = result_snapshot ? {
+      ...existingSnapshot,
+      ...result_snapshot,
+      // Never overwrite existing questions if new payload is empty/missing
+      questions: (Array.isArray(result_snapshot.questions) && result_snapshot.questions.length > 0)
+        ? result_snapshot.questions
+        : (existingSnapshot.questions || []),
+      // Never overwrite existing rounds if new payload is empty/missing
+      rounds: (Array.isArray(result_snapshot.rounds) && result_snapshot.rounds.length > 0)
+        ? result_snapshot.rounds
+        : (mergedSettings.rounds || existingSnapshot.rounds || []),
+      // Never overwrite existing participants if new payload is empty/missing
+      participants: (Array.isArray(result_snapshot.participants) && result_snapshot.participants.length > 0)
+        ? result_snapshot.participants
+        : (existingSnapshot.participants || []),
+      turnHistory: result_snapshot.turnHistory !== undefined
+        ? result_snapshot.turnHistory
+        : (existingSnapshot.turnHistory || [])
+    } : {
+      ...existingSnapshot,
+      rounds: mergedSettings.rounds || existingSnapshot.rounds || []
+    };
+
+    const updatePayload = {
+      settings: mergedSettings,
+      result_snapshot: mergedSnapshot
+    };
     if (name) updatePayload.result_name = name.trim();
-    if (settings) updatePayload.settings = settings;
-    if (result_snapshot) updatePayload.result_snapshot = result_snapshot;
 
     const { data, error } = await supabase
       .from('results')

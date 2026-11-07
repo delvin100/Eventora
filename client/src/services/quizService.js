@@ -481,38 +481,83 @@ export const quizService = {
       } catch (_) {}
     }
 
-    const local = getLocalQuizzes(user?.id);
-    const existing = local.find(q => q.id === quizId);
+    // 1. Fetch current quiz from database / API to preserve all existing rounds, media, and questions
+    let existing = null;
+    if (supabase && user) {
+      try {
+        const { data: dbData } = await supabase
+          .from('results')
+          .select('*')
+          .eq('id', quizId)
+          .eq('operation_type', 'quiz')
+          .maybeSingle();
+        if (dbData) {
+          existing = formatQuizRecord(dbData);
+        }
+      } catch (_) {}
+    }
+
+    if (!existing) {
+      try {
+        existing = await this.getQuizById(quizId);
+      } catch (_) {}
+    }
+
+    if (!existing) {
+      const local = getLocalQuizzes(user?.id);
+      existing = local.find(q => q.id === quizId) || null;
+    }
 
     const activeRoundNum = currentRound !== undefined ? Number(currentRound) : (existing?.currentRound || 1);
     const updatedIsFinished = isFinished !== undefined ? Boolean(isFinished) : Boolean(existing?.isFinished);
 
-    let cleanRounds = rounds !== undefined ? (Array.isArray(rounds) ? [...rounds] : []) : (existing?.rounds ? [...existing.rounds] : [
-      {
-        roundNumber: 1,
-        quizType: existing?.quizType || null,
-        isTypeConfirmed: Boolean(existing?.quizType),
-        questions: existing?.questions || [],
-        isCompleted: false,
-        introMediaUrl: '',
-        introMediaType: 'video'
-      }
-    ]);
+    // Resolve Quiz-Level Intro Media: never wipe to empty if not passed
+    const finalIntroMediaUrl = introMediaUrl !== undefined ? introMediaUrl : (existing?.introMediaUrl || '');
+    const finalIntroMediaType = introMediaType !== undefined ? introMediaType : (existing?.introMediaType || 'video');
 
-    // Ensure round for activeRoundNum exists in cleanRounds
+    // Resolve clean rounds: if rounds not passed, KEEP EXISTING ROUNDS!
+    let cleanRounds;
+    if (rounds !== undefined) {
+      cleanRounds = Array.isArray(rounds) ? [...rounds] : [];
+    } else if (existing?.rounds && existing.rounds.length > 0) {
+      cleanRounds = [...existing.rounds];
+    } else {
+      cleanRounds = [
+        {
+          roundNumber: 1,
+          quizType: existing?.quizType || null,
+          isTypeConfirmed: Boolean(existing?.quizType),
+          questions: existing?.questions || [],
+          isCompleted: false,
+          introMediaUrl: '',
+          introMediaType: 'video'
+        }
+      ];
+    }
+
+    // Merge round details for activeRoundNum if quizType or questions are provided
     const roundIdx = cleanRounds.findIndex(r => r.roundNumber === activeRoundNum);
     if (roundIdx >= 0) {
+      const targetR = cleanRounds[roundIdx];
+      const existingMatchingRound = (existing?.rounds || []).find(er => er.roundNumber === activeRoundNum);
+
       cleanRounds[roundIdx] = {
-        ...cleanRounds[roundIdx],
-        quizType: quizType !== undefined ? quizType : cleanRounds[roundIdx].quizType,
-        isTypeConfirmed: quizType !== undefined ? Boolean(quizType) : cleanRounds[roundIdx].isTypeConfirmed,
-        questions: questions !== undefined ? (Array.isArray(questions) ? questions : []) : (cleanRounds[roundIdx].questions || []),
-        introMediaUrl: cleanRounds[roundIdx].introMediaUrl !== undefined ? cleanRounds[roundIdx].introMediaUrl : '',
-        introMediaType: cleanRounds[roundIdx].introMediaType || 'video'
+        ...targetR,
+        quizType: quizType !== undefined ? quizType : targetR.quizType,
+        isTypeConfirmed: quizType !== undefined ? Boolean(quizType) : targetR.isTypeConfirmed,
+        questions: questions !== undefined
+          ? (Array.isArray(questions) ? questions : [])
+          : (targetR.questions?.length > 0 ? targetR.questions : (existingMatchingRound?.questions || [])),
+        introMediaUrl: targetR.introMediaUrl !== undefined
+          ? targetR.introMediaUrl
+          : (existingMatchingRound?.introMediaUrl || ''),
+        introMediaType: targetR.introMediaType || existingMatchingRound?.introMediaType || 'video'
       };
-    } else {
+    } else if (quizType !== undefined || questions !== undefined) {
       cleanRounds.push({
         roundNumber: activeRoundNum,
+        name: `Round ${activeRoundNum}`,
+        title: `Round ${activeRoundNum}`,
         quizType: quizType || null,
         isTypeConfirmed: Boolean(quizType),
         questions: questions !== undefined ? (Array.isArray(questions) ? questions : []) : [],
@@ -522,9 +567,24 @@ export const quizService = {
       });
     }
 
+    // Ensure every round preserves its intro media if existing
+    cleanRounds = cleanRounds.map(r => {
+      const existingMatching = (existing?.rounds || []).find(er => er.roundNumber === r.roundNumber);
+      return {
+        ...r,
+        introMediaUrl: r.introMediaUrl !== undefined ? r.introMediaUrl : (existingMatching?.introMediaUrl || ''),
+        introMediaType: r.introMediaType || existingMatching?.introMediaType || 'video',
+        questions: r.questions || existingMatching?.questions || []
+      };
+    });
+
     const currentRoundEntry = cleanRounds.find(r => r.roundNumber === activeRoundNum) || cleanRounds[0];
-    const cleanQuestions = questions !== undefined ? (Array.isArray(questions) ? questions : []) : (currentRoundEntry?.questions || existing?.questions || []);
-    const cleanParticipants = participants !== undefined ? (Array.isArray(participants) ? participants : []) : (existing?.participants || []);
+    const cleanQuestions = questions !== undefined
+      ? (Array.isArray(questions) ? questions : [])
+      : (currentRoundEntry?.questions || existing?.questions || []);
+    const cleanParticipants = participants !== undefined
+      ? (Array.isArray(participants) ? participants : [])
+      : (existing?.participants || []);
     const totalMarks = cleanQuestions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
 
     const updatedSettings = {
@@ -535,8 +595,8 @@ export const quizService = {
       defaultTimeUnit: defaultTimeUnit || (existing?.defaultTimeUnit || 'sec'),
       currentRound: activeRoundNum,
       isFinished: updatedIsFinished,
-      introMediaUrl: introMediaUrl !== undefined ? introMediaUrl : (existing?.introMediaUrl || ''),
-      introMediaType: introMediaType !== undefined ? introMediaType : (existing?.introMediaType || 'video'),
+      introMediaUrl: finalIntroMediaUrl,
+      introMediaType: finalIntroMediaType,
       rounds: cleanRounds,
       updated_at: new Date().toISOString()
     };
@@ -549,7 +609,8 @@ export const quizService = {
           result_snapshot: {
             questions: cleanQuestions,
             participants: cleanParticipants,
-            rounds: cleanRounds
+            rounds: cleanRounds,
+            turnHistory: existing?.turnHistory || []
           }
         };
         if (name) updatePayload.result_name = name.trim();
@@ -579,7 +640,8 @@ export const quizService = {
                 result_snapshot: {
                   questions: cleanQuestions,
                   participants: cleanParticipants,
-                  rounds: cleanRounds
+                  rounds: cleanRounds,
+                  turnHistory: existing?.turnHistory || []
                 }
               })
             });
@@ -591,8 +653,11 @@ export const quizService = {
     }
 
     // 2. Update local storage
+    const local = getLocalQuizzes(user?.id);
+    let foundInLocal = false;
     const updatedLocal = local.map(q => {
       if (q.id === quizId) {
+        foundInLocal = true;
         return {
           ...q,
           name: name ? name.trim() : q.name,
@@ -603,8 +668,8 @@ export const quizService = {
           defaultTimeUnit: defaultTimeUnit || (q.defaultTimeUnit || 'sec'),
           currentRound: activeRoundNum,
           isFinished: updatedIsFinished,
-          introMediaUrl: introMediaUrl !== undefined ? introMediaUrl : (q.introMediaUrl || ''),
-          introMediaType: introMediaType !== undefined ? introMediaType : (q.introMediaType || 'video'),
+          introMediaUrl: finalIntroMediaUrl,
+          introMediaType: finalIntroMediaType,
           rounds: cleanRounds,
           questions: cleanQuestions,
           participants: cleanParticipants,
@@ -616,6 +681,30 @@ export const quizService = {
       }
       return q;
     });
+
+    if (!foundInLocal) {
+      updatedLocal.unshift({
+        ...(existing || {}),
+        id: quizId,
+        name: name ? name.trim() : (existing?.name || 'Untitled Quiz'),
+        description: description !== undefined ? description : (existing?.description || ''),
+        quizType: quizType !== undefined ? quizType : (currentRoundEntry?.quizType || existing?.quizType || null),
+        defaultMarks: Number(defaultMarks) || existing?.defaultMarks || 1,
+        defaultTimeValue: defaultTimeValue !== undefined ? defaultTimeValue : (existing?.defaultTimeValue ?? ''),
+        defaultTimeUnit: defaultTimeUnit || (existing?.defaultTimeUnit || 'sec'),
+        currentRound: activeRoundNum,
+        isFinished: updatedIsFinished,
+        introMediaUrl: finalIntroMediaUrl,
+        introMediaType: finalIntroMediaType,
+        rounds: cleanRounds,
+        questions: cleanQuestions,
+        participants: cleanParticipants,
+        questionsCount: cleanQuestions.length,
+        participantsCount: cleanParticipants.length,
+        totalMarks,
+        updated_at: new Date().toISOString()
+      });
+    }
 
     saveLocalQuizzes(user?.id, updatedLocal);
     return true;
