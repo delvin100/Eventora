@@ -29,6 +29,50 @@ import StylishQuizTypeDropdown from '../components/quiz/StylishQuizTypeDropdown'
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
+function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks = 1) {
+  const isDirect = quizType === 'answer_to_question';
+  const isTwoChances = quizType === 'one_question_two_chances';
+  return {
+    id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    text: '',
+    answer: isDirect ? '' : undefined,
+    marks: Number(defaultMarks) || 1,
+    secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
+    timeLimit: null,
+    timeValue: '',
+    timeUnit: 'sec',
+    options: isDirect ? [] : [
+      { id: 'opt_1', text: '', isCorrect: true },
+      { id: 'opt_2', text: '', isCorrect: false },
+      { id: 'opt_3', text: '', isCorrect: false },
+      { id: 'opt_4', text: '', isCorrect: false }
+    ]
+  };
+}
+
+function normalizeQuestions(rawList, defaultSecondMarks = 1) {
+  if (!Array.isArray(rawList)) return [];
+  return rawList.map(q => {
+    const unit = q.timeUnit || 'sec';
+    let val = q.timeValue;
+    if (val === undefined || val === null || val === '') {
+      if (q.timeLimit && Number(q.timeLimit) > 0) {
+        val = unit === 'min' ? Math.round(Number(q.timeLimit) / 60) : Number(q.timeLimit);
+      } else {
+        val = '';
+      }
+    }
+    return {
+      ...q,
+      answer: q.answer !== undefined ? q.answer : '',
+      secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondMarks) || 1),
+      timeValue: val,
+      timeUnit: unit,
+      timeLimit: q.timeLimit ? Number(q.timeLimit) : (val !== '' && !isNaN(Number(val)) && Number(val) > 0 ? (unit === 'min' ? Math.round(Number(val) * 60) : Math.round(Number(val))) : null)
+    };
+  });
+}
+
 function StylishUnitDropdown({ value = 'sec', onChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
@@ -109,9 +153,11 @@ export default function QuizWorkspacePage() {
   const [questionToDeleteIdx, setQuestionToDeleteIdx] = useState(null);
 
   // Round Management
+  const [rounds, setRounds] = useState([]);
   const [currentRound, setCurrentRound] = useState(1);
   const [isTypeConfirmed, setIsTypeConfirmed] = useState(false);
   const [selectedRoundType, setSelectedRoundType] = useState('');
+  const [roundToDeleteNum, setRoundToDeleteNum] = useState(null);
 
   // Status notification
   const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
@@ -161,7 +207,9 @@ export default function QuizWorkspacePage() {
               }
             ];
 
-        const activeRound = roundsList.find(r => r.roundNumber === activeRoundNum) || {
+        setRounds(roundsList);
+
+        const activeRound = roundsList.find(r => r.roundNumber === activeRoundNum) || roundsList[0] || {
           roundNumber: activeRoundNum,
           quizType: null,
           isTypeConfirmed: false,
@@ -180,46 +228,10 @@ export default function QuizWorkspacePage() {
         let rawQuestions = Array.isArray(activeRound.questions) && activeRound.questions.length > 0
           ? activeRound.questions
           : hasConfirmedType
-          ? [
-              {
-                id: 'q_' + Date.now(),
-                text: '',
-                answer: activeRound.quizType === 'answer_to_question' ? '' : undefined,
-                marks: data.defaultMarks || 1,
-                secondTryMarks: activeRound.quizType === 'one_question_two_chances' ? (data.defaultSecondTryMarks || 1) : undefined,
-                timeLimit: null,
-                timeValue: '',
-                timeUnit: 'sec',
-                options: activeRound.quizType === 'answer_to_question' ? [] : [
-                  { id: 'opt_1', text: '', isCorrect: true },
-                  { id: 'opt_2', text: '', isCorrect: false },
-                  { id: 'opt_3', text: '', isCorrect: false },
-                  { id: 'opt_4', text: '', isCorrect: false }
-                ]
-              }
-            ]
+          ? [createDefaultQuestion(activeRound.quizType, data.defaultMarks || 1, data.defaultSecondTryMarks || 1)]
           : [];
 
-        const initialQuestions = rawQuestions.map(q => {
-          const unit = q.timeUnit || 'sec';
-          let val = q.timeValue;
-          if (val === undefined || val === null || val === '') {
-            if (q.timeLimit && Number(q.timeLimit) > 0) {
-              val = unit === 'min' ? Math.round(Number(q.timeLimit) / 60) : Number(q.timeLimit);
-            } else {
-              val = '';
-            }
-          }
-          return {
-            ...q,
-            answer: q.answer !== undefined ? q.answer : '',
-            secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (data.defaultSecondTryMarks || 1),
-            timeValue: val,
-            timeUnit: unit,
-            timeLimit: q.timeLimit ? Number(q.timeLimit) : (val !== '' && !isNaN(Number(val)) && Number(val) > 0 ? (unit === 'min' ? Math.round(Number(val) * 60) : Math.round(Number(val))) : null)
-          };
-        });
-
+        const initialQuestions = normalizeQuestions(rawQuestions, data.defaultSecondTryMarks || 1);
         setQuestions(initialQuestions);
 
         // Update document title and rewrite UUID URL with slug
@@ -246,8 +258,176 @@ export default function QuizWorkspacePage() {
     return () => { isCancelled = true; };
   }, [quizId]);
 
-  // Compute Total Marks dynamically
+  // Compute Total Marks dynamically for current round
   const totalMarks = questions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
+
+  // Helper to sanitize current questions state
+  const getSanitizedQuestions = () => {
+    return questions.map(q => ({
+      ...q,
+      marks: Math.max(1, parseInt(q.marks, 10) || 1),
+      ...(selectedRoundType === 'one_question_two_chances'
+        ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
+        : {})
+    }));
+  };
+
+  // Switch between rounds in the workspace
+  const handleSwitchRound = (targetRoundNum) => {
+    if (targetRoundNum === currentRound) return;
+
+    // 1. Sync current editing questions and quizType into rounds state
+    const sanitizedCurrentQuestions = getSanitizedQuestions();
+    const updatedRounds = rounds.map(r => {
+      if (r.roundNumber === currentRound) {
+        return {
+          ...r,
+          quizType: selectedRoundType,
+          isTypeConfirmed: isTypeConfirmed,
+          questions: sanitizedCurrentQuestions
+        };
+      }
+      return r;
+    });
+
+    if (!updatedRounds.some(r => r.roundNumber === currentRound)) {
+      updatedRounds.push({
+        roundNumber: currentRound,
+        quizType: selectedRoundType,
+        isTypeConfirmed: isTypeConfirmed,
+        questions: sanitizedCurrentQuestions,
+        isCompleted: false
+      });
+    }
+
+    setRounds(updatedRounds);
+
+    // 2. Load target round
+    const targetRound = updatedRounds.find(r => r.roundNumber === targetRoundNum) || {
+      roundNumber: targetRoundNum,
+      quizType: null,
+      isTypeConfirmed: false,
+      questions: [],
+      isCompleted: false
+    };
+
+    const hasConfirmed = Boolean(
+      targetRound.isTypeConfirmed ||
+      (targetRound.quizType && targetRound.questions?.length > 0 && targetRound.questions.some(q => q.text?.trim() || q.answer?.trim() || q.options?.some(o => o.text?.trim())))
+    );
+
+    setCurrentRound(targetRoundNum);
+    setSelectedRoundType(targetRound.quizType || '');
+    setIsTypeConfirmed(hasConfirmed);
+
+    const rawQuestions = Array.isArray(targetRound.questions) && targetRound.questions.length > 0
+      ? targetRound.questions
+      : hasConfirmed
+      ? [createDefaultQuestion(targetRound.quizType, defaultMarks, defaultSecondTryMarks)]
+      : [];
+
+    setQuestions(normalizeQuestions(rawQuestions, defaultSecondTryMarks));
+  };
+
+  // Add a new round at the beginning
+  const handleAddRound = () => {
+    const sanitizedCurrentQuestions = getSanitizedQuestions();
+    const updatedRounds = rounds.map(r => {
+      if (r.roundNumber === currentRound) {
+        return {
+          ...r,
+          quizType: selectedRoundType,
+          isTypeConfirmed: isTypeConfirmed,
+          questions: sanitizedCurrentQuestions
+        };
+      }
+      return r;
+    });
+
+    if (!updatedRounds.some(r => r.roundNumber === currentRound)) {
+      updatedRounds.push({
+        roundNumber: currentRound,
+        quizType: selectedRoundType,
+        isTypeConfirmed: isTypeConfirmed,
+        questions: sanitizedCurrentQuestions,
+        isCompleted: false
+      });
+    }
+
+    const nextRoundNumber = updatedRounds.length > 0
+      ? Math.max(...updatedRounds.map(r => r.roundNumber)) + 1
+      : 1;
+
+    const newRound = {
+      roundNumber: nextRoundNumber,
+      quizType: null,
+      isTypeConfirmed: false,
+      questions: [],
+      isCompleted: false
+    };
+
+    const nextRoundsList = [...updatedRounds, newRound];
+    setRounds(nextRoundsList);
+
+    // Switch to new round
+    setCurrentRound(nextRoundNumber);
+    setSelectedRoundType('');
+    setIsTypeConfirmed(false);
+    setQuestions([]);
+
+    setStatusMsg({
+      type: 'success',
+      text: `Round ${nextRoundNumber} added! Choose a quiz type to configure its questions.`
+    });
+    setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
+  };
+
+  // Delete a round
+  const handleDeleteRound = (roundNumToDelete) => {
+    if (rounds.length <= 1) {
+      setStatusMsg({ type: 'error', text: 'Quiz must have at least 1 round.' });
+      setTimeout(() => setStatusMsg({ type: '', text: '' }), 3000);
+      return;
+    }
+
+    const remaining = rounds
+      .filter(r => r.roundNumber !== roundNumToDelete)
+      .map((r, idx) => ({ ...r, roundNumber: idx + 1 }));
+
+    setRounds(remaining);
+
+    let newActiveRound = currentRound;
+    if (currentRound === roundNumToDelete) {
+      newActiveRound = Math.min(roundNumToDelete, remaining.length);
+    } else if (currentRound > roundNumToDelete) {
+      newActiveRound = currentRound - 1;
+    }
+
+    const targetRound = remaining.find(r => r.roundNumber === newActiveRound) || remaining[0];
+    const hasConfirmed = Boolean(
+      targetRound.isTypeConfirmed ||
+      (targetRound.quizType && targetRound.questions?.length > 0 && targetRound.questions.some(q => q.text?.trim() || q.answer?.trim() || q.options?.some(o => o.text?.trim())))
+    );
+
+    setCurrentRound(targetRound.roundNumber);
+    setSelectedRoundType(targetRound.quizType || '');
+    setIsTypeConfirmed(hasConfirmed);
+
+    const rawQuestions = Array.isArray(targetRound.questions) && targetRound.questions.length > 0
+      ? targetRound.questions
+      : hasConfirmed
+      ? [createDefaultQuestion(targetRound.quizType, defaultMarks, defaultSecondTryMarks)]
+      : [];
+
+    setQuestions(normalizeQuestions(rawQuestions, defaultSecondTryMarks));
+    setRoundToDeleteNum(null);
+
+    setStatusMsg({
+      type: 'success',
+      text: `Round ${roundNumToDelete} removed. Quiz updated to ${remaining.length} round${remaining.length === 1 ? '' : 's'}.`
+    });
+    setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
+  };
 
   // Confirm Round Quiz Type handler
   const handleConfirmRoundType = async () => {
@@ -275,27 +455,9 @@ export default function QuizWorkspacePage() {
               { id: 'opt_3', text: '', isCorrect: false },
               { id: 'opt_4', text: '', isCorrect: false }
             ])
-    })) : [
-      {
-        id: 'q_' + Date.now(),
-        text: '',
-        answer: isDirect ? '' : undefined,
-        marks: Number(defaultMarks) || 1,
-        secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
-        timeLimit: null,
-        timeValue: '',
-        timeUnit: 'sec',
-        options: isDirect ? [] : [
-          { id: 'opt_1', text: '', isCorrect: true },
-          { id: 'opt_2', text: '', isCorrect: false },
-          { id: 'opt_3', text: '', isCorrect: false },
-          { id: 'opt_4', text: '', isCorrect: false }
-        ]
-      }
-    ];
+    })) : [createDefaultQuestion(selectedRoundType, defaultMarks, defaultSecondTryMarks)];
 
-    const existingRounds = Array.isArray(quiz?.rounds) ? [...quiz.rounds] : [];
-    let updatedRounds = existingRounds.map(r => {
+    const updatedRounds = rounds.map(r => {
       if (r.roundNumber === currentRound) {
         return {
           ...r,
@@ -317,7 +479,7 @@ export default function QuizWorkspacePage() {
       });
     }
 
-    // Immediately unlock question screen so user sees Question 1 right away
+    setRounds(updatedRounds);
     setQuestions(defaultQ);
     setIsTypeConfirmed(true);
     setQuiz(prev => ({
@@ -364,22 +526,15 @@ export default function QuizWorkspacePage() {
         setDefaultSecondTryMarks(cleanDefaultSecondMarks);
       }
 
-      const sanitizedQuestions = questions.map(q => ({
-        ...q,
-        marks: Math.max(1, parseInt(q.marks, 10) || 1),
-        ...(selectedRoundType === 'one_question_two_chances'
-          ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
-          : {})
-      }));
+      const sanitizedQuestions = getSanitizedQuestions();
       setQuestions(sanitizedQuestions);
 
-      const existingRounds = Array.isArray(quiz.rounds) ? [...quiz.rounds] : [];
-      let updatedRounds = existingRounds.map(r => {
+      let updatedRounds = rounds.map(r => {
         if (r.roundNumber === currentRound) {
           return {
             ...r,
             quizType: selectedRoundType,
-            isTypeConfirmed: true,
+            isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions
           };
         }
@@ -390,11 +545,13 @@ export default function QuizWorkspacePage() {
         updatedRounds.push({
           roundNumber: currentRound,
           quizType: selectedRoundType,
-          isTypeConfirmed: true,
+          isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
           isCompleted: false
         });
       }
+
+      setRounds(updatedRounds);
 
       await quizService.updateQuiz(quiz.id, {
         name: quizName,
@@ -411,10 +568,9 @@ export default function QuizWorkspacePage() {
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-      setStatusMsg({ type: 'success', text: `Round ${currentRound} questions and quiz configuration saved!` });
+      setStatusMsg({ type: 'success', text: `All rounds and questions saved successfully!` });
       setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
 
-      // Keep title and URL in sync if name changed
       if (quizName) {
         document.title = `${quizName} | Eventora Quiz`;
         const slug = slugify(quizName);
@@ -430,7 +586,7 @@ export default function QuizWorkspacePage() {
     }
   };
 
-  // Next Step handler: automatically saves questions and navigates to the Participants & Wheel page
+  // Next Step handler: automatically saves all questions/rounds and navigates to the Participants & Wheel page
   const handleGoToNext = async () => {
     const targetQuizId = quiz?.id || location.state?.quizId || quizId;
     if (!targetQuizId) return;
@@ -439,21 +595,14 @@ export default function QuizWorkspacePage() {
       setSaving(true);
       const cleanDefaultMarks = Math.max(1, parseInt(defaultMarks, 10) || 1);
       const cleanDefaultSecondMarks = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
-      const sanitizedQuestions = questions.map(q => ({
-        ...q,
-        marks: Math.max(1, parseInt(q.marks, 10) || 1),
-        ...(selectedRoundType === 'one_question_two_chances'
-          ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
-          : {})
-      }));
+      const sanitizedQuestions = getSanitizedQuestions();
 
-      const existingRounds = Array.isArray(quiz?.rounds) ? [...quiz.rounds] : [];
-      let updatedRounds = existingRounds.map(r => {
+      let updatedRounds = rounds.map(r => {
         if (r.roundNumber === currentRound) {
           return {
             ...r,
             quizType: selectedRoundType,
-            isTypeConfirmed: true,
+            isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions
           };
         }
@@ -464,32 +613,35 @@ export default function QuizWorkspacePage() {
         updatedRounds.push({
           roundNumber: currentRound,
           quizType: selectedRoundType,
-          isTypeConfirmed: true,
+          isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
           isCompleted: false
         });
       }
 
+      setRounds(updatedRounds);
+
+      const round1 = updatedRounds.find(r => r.roundNumber === 1) || updatedRounds[0];
+
       await quizService.updateQuiz(targetQuizId, {
         name: quizName,
         description: quizDescription,
-        quizType: selectedRoundType,
+        quizType: round1?.quizType || selectedRoundType,
         defaultMarks: cleanDefaultMarks,
         defaultSecondTryMarks: cleanDefaultSecondMarks,
         defaultTimeValue,
         defaultTimeUnit,
-        currentRound,
+        currentRound: 1, // Start quiz from Round 1
         rounds: updatedRounds,
-        questions: sanitizedQuestions
+        questions: round1?.questions || sanitizedQuestions
       });
 
       const slug = slugify(quizName) || targetQuizId;
-      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: currentRound, tab: 'participants' } });
+      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
     } catch (err) {
       console.error('Auto-save before next step failed:', err);
-      // Still navigate so user is never stuck
       const slug = slugify(quizName) || targetQuizId;
-      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: currentRound, tab: 'participants' } });
+      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
     } finally {
       setSaving(false);
     }
@@ -857,6 +1009,73 @@ export default function QuizWorkspacePage() {
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <span className="text-[#635BFF] font-bold">Round {currentRound}</span>
       </nav>
+
+      {/* Rounds Navigation Header Bar */}
+      <div className="p-3 sm:p-4 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 overflow-x-auto py-1 max-w-full">
+          <div className="flex items-center gap-1.5 shrink-0 pr-1 text-xs font-black text-gray-500 uppercase tracking-wider">
+            <Layers className="w-4 h-4 text-[#635BFF]" />
+            <span>Rounds:</span>
+          </div>
+
+          {rounds.map((rnd) => {
+            const isActive = rnd.roundNumber === currentRound;
+            const rndQuestionCount = isActive ? questions.length : (rnd.questions?.length || 0);
+
+            return (
+              <div key={rnd.roundNumber} className="relative group shrink-0 flex items-center">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchRound(rnd.roundNumber)}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer select-none ${
+                    isActive
+                      ? 'bg-[#635BFF] text-white shadow-md shadow-[#635BFF]/30 font-black'
+                      : 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                  }`}
+                >
+                  <span>Round {rnd.roundNumber}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
+                    isActive
+                      ? 'bg-white/20 text-white'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                  }`}>
+                    {rndQuestionCount} {rndQuestionCount === 1 ? 'Q' : 'Qs'}
+                  </span>
+                </button>
+
+                {/* Delete round button (if more than 1 round exists) */}
+                {rounds.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRoundToDeleteNum(rnd.roundNumber);
+                    }}
+                    className="ml-1 p-1 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                    title={`Delete Round ${rnd.roundNumber}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Add Round Button */}
+          <button
+            type="button"
+            onClick={handleAddRound}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-dashed border-[#635BFF]/60 hover:border-[#635BFF] text-[#635BFF] dark:text-[#8881FF] hover:bg-violet-50/60 dark:hover:bg-violet-950/30 text-xs font-bold transition-all cursor-pointer shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Round</span>
+          </button>
+        </div>
+
+        <div className="text-[11px] font-semibold text-gray-400 shrink-0">
+          Total: {rounds.length} {rounds.length === 1 ? 'Round' : 'Rounds'}
+        </div>
+      </div>
 
       {/* Status banner */}
       {statusMsg.text && (
@@ -1432,6 +1651,18 @@ export default function QuizWorkspacePage() {
       </div>
       </>
       )}
+
+      {/* Delete Round Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={roundToDeleteNum !== null}
+        title={`Delete Round ${roundToDeleteNum}`}
+        message={`Are you sure you want to delete Round ${roundToDeleteNum}? All questions in this round will be removed.`}
+        confirmText="Delete Round"
+        confirmVariant="danger"
+        onConfirm={() => handleDeleteRound(roundToDeleteNum)}
+        onCancel={() => setRoundToDeleteNum(null)}
+        onClose={() => setRoundToDeleteNum(null)}
+      />
 
       {/* Delete Question Confirmation Dialog */}
       <ConfirmDialog

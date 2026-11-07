@@ -35,6 +35,7 @@ export default function QuizDashboardPage() {
   // New Quiz Form state
   const [newQuizName, setNewQuizName] = useState('');
   const [newQuizDescription, setNewQuizDescription] = useState('');
+  const [newQuizRounds, setNewQuizRounds] = useState(1);
   const [defaultMarks, setDefaultMarks] = useState(1);
   const [creating, setCreating] = useState(false);
   const [formError, setFormError] = useState('');
@@ -42,6 +43,7 @@ export default function QuizDashboardPage() {
   const openCreateModal = () => {
     setNewQuizName('');
     setNewQuizDescription('');
+    setNewQuizRounds(1);
     setDefaultMarks(1);
     setFormError('');
     setIsCreateModalOpen(true);
@@ -77,12 +79,14 @@ export default function QuizDashboardPage() {
       const created = await quizService.createQuiz({
         name: newQuizName,
         description: newQuizDescription,
-        defaultMarks: Number(defaultMarks) || 1
+        defaultMarks: Number(defaultMarks) || 1,
+        numberOfRounds: Number(newQuizRounds) || 1
       });
 
       setIsCreateModalOpen(false);
       setNewQuizName('');
       setNewQuizDescription('');
+      setNewQuizRounds(1);
       setDefaultMarks(1);
 
       // Enter directly into the newly created quiz workspace using slug/name
@@ -286,6 +290,52 @@ export default function QuizDashboardPage() {
                   placeholder="e.g. Science & Nature Trivia, History Pop Quiz"
                   className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400"
                 />
+              </div>
+
+              {/* Number of Rounds */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+                  Number of Rounds <span className="text-gray-400 font-normal normal-case">(can add more anytime)</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <div className="inline-flex items-center rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setNewQuizRounds(prev => Math.max(1, (parseInt(prev, 10) || 1) - 1))}
+                      disabled={Number(newQuizRounds) <= 1}
+                      className="w-9 h-[42px] flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-l-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-base font-bold select-none border-r border-gray-100 dark:border-gray-800"
+                      title="Decrease rounds"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={newQuizRounds}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value, 10);
+                        setNewQuizRounds(isNaN(val) ? '' : Math.max(1, Math.min(20, val)));
+                      }}
+                      onBlur={() => {
+                        if (!newQuizRounds || Number(newQuizRounds) < 1) setNewQuizRounds(1);
+                      }}
+                      className="w-14 h-[42px] text-sm font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNewQuizRounds(prev => Math.min(20, (parseInt(prev, 10) || 1) + 1))}
+                      disabled={Number(newQuizRounds) >= 20}
+                      className="w-9 h-[42px] flex items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-r-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer text-base font-bold select-none border-l border-gray-100 dark:border-gray-800"
+                      title="Increase rounds"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                    {Number(newQuizRounds) === 1 ? '1 round initial setup' : `${newQuizRounds} rounds configured at start`}
+                  </span>
+                </div>
               </div>
 
               {/* Description (Optional) */}

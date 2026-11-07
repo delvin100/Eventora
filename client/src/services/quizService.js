@@ -227,7 +227,7 @@ export const quizService = {
   },
 
   // Create a new quiz
-  async createQuiz({ name, description = '', defaultMarks = 1 }) {
+  async createQuiz({ name, description = '', defaultMarks = 1, numberOfRounds = 1 }) {
     const cleanName = (name || '').trim();
     if (!cleanName) throw new Error('Quiz name is required');
 
@@ -239,15 +239,14 @@ export const quizService = {
       } catch (_) {}
     }
 
-    const initialRounds = [
-      {
-        roundNumber: 1,
-        quizType: null,
-        isTypeConfirmed: false,
-        questions: [],
-        isCompleted: false
-      }
-    ];
+    const count = Math.max(1, parseInt(numberOfRounds, 10) || 1);
+    const initialRounds = Array.from({ length: count }, (_, idx) => ({
+      roundNumber: idx + 1,
+      quizType: null,
+      isTypeConfirmed: false,
+      questions: [],
+      isCompleted: false
+    }));
 
     const initialSettings = {
       description: description.trim(),

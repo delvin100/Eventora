@@ -253,8 +253,17 @@ function QuizPlayPageContent() {
   const [directResult, setDirectResult] = useState(null); // 'correct' | 'wrong' | null
 
   // Round Information
-  const currentRound = (location.state?.round ? Number(location.state.round) : null) || quiz?.currentRound || 1;
-  const activeRoundObj = (Array.isArray(quiz?.rounds) ? quiz.rounds.find(r => r.roundNumber === currentRound) : null) || { questions: quiz?.questions || [], quizType: quiz?.quizType };
+  const [currentRound, setCurrentRound] = useState(
+    (location.state?.round ? Number(location.state.round) : null) || 1
+  );
+
+  const roundsList = Array.isArray(quiz?.rounds) && quiz.rounds.length > 0
+    ? quiz.rounds
+    : [{ roundNumber: 1, questions: quiz?.questions || [], quizType: quiz?.quizType }];
+  const totalRounds = roundsList.length;
+  const isLastRound = currentRound >= totalRounds;
+
+  const activeRoundObj = (Array.isArray(quiz?.rounds) ? quiz.rounds.find(r => r.roundNumber === currentRound) : null) || roundsList[0] || { questions: quiz?.questions || [], quizType: quiz?.quizType };
   const currentRoundType = activeRoundObj?.quizType || quiz?.quizType || 'one_question_one_chance';
   const typeDef = QUIZ_TYPES.find(t => t.id === currentRoundType) || QUIZ_TYPES[0];
 
@@ -306,6 +315,7 @@ function QuizPlayPageContent() {
         }
 
         const activeRoundNum = (location.state?.round ? Number(location.state.round) : null) || data.currentRound || 1;
+        setCurrentRound(activeRoundNum);
         setQuiz(data);
         const list = Array.isArray(data.participants) ? data.participants : [];
         const initialized = list.map(p => ({
@@ -346,7 +356,7 @@ function QuizPlayPageContent() {
     return () => { isCancelled = true; };
   }, [quizId]);
 
-  // Proceed to Next Round handler
+  // Proceed to Next Round handler: advances seamlessly right here on the play page
   const handleProceedToNextRound = async () => {
     if (!quiz?.id) return;
     const nextRoundNum = currentRound + 1;
@@ -363,8 +373,8 @@ function QuizPlayPageContent() {
     if (!updatedRounds.some(r => r.roundNumber === nextRoundNum)) {
       updatedRounds.push({
         roundNumber: nextRoundNum,
-        quizType: null,
-        isTypeConfirmed: false,
+        quizType: quiz?.quizType || 'one_question_one_chance',
+        isTypeConfirmed: true,
         questions: [],
         isCompleted: false
       });
@@ -374,26 +384,60 @@ function QuizPlayPageContent() {
       localStorage.removeItem(getQuizSessionKey(quiz.id, nextRoundNum));
     } catch (_) {}
 
+    const nextRoundObj = updatedRounds.find(r => r.roundNumber === nextRoundNum);
+    const nextQuestions = nextRoundObj?.questions || [];
+
+    // Reset round session state for all participants to have their turns in the new round
+    setUsedQuestionIds(new Set());
+    setRemovedIds(new Set());
+    setCurrentWinner(null);
+    setActiveQuestion(null);
+    setIsQuestionModalOpen(false);
+    saveQuizSession(quiz.id, nextRoundNum, new Set(), new Set());
+
+    // Update in backend / cache
     await quizService.updateQuiz(quiz.id, {
       currentRound: nextRoundNum,
       rounds: updatedRounds,
-      questions: [],
+      questions: nextQuestions,
       participants: allParticipants
     });
 
-    const slug = slugify(quiz.name) || quiz.id;
-    navigate(`/app/quiz/${slug}`, { state: { quizId: quiz.id, round: nextRoundNum } });
+    // Update local state
+    setCurrentRound(nextRoundNum);
+    setQuiz(prev => ({
+      ...prev,
+      currentRound: nextRoundNum,
+      rounds: updatedRounds,
+      questions: nextQuestions
+    }));
+
+    if (quiz.name) {
+      document.title = `${quiz.name} (Round ${nextRoundNum}) - Play | Eventora`;
+    }
+
+    // Switch to wheel tab ready to spin for the new round
+    setActiveTab('wheel');
   };
 
   // Finish Quiz handler
   const handleFinishQuiz = async () => {
     if (!quiz?.id) return;
     try {
+      const existingRounds = Array.isArray(quiz.rounds) ? [...quiz.rounds] : [];
+      const updatedRounds = existingRounds.map(r => {
+        if (r.roundNumber === currentRound) {
+          return { ...r, isCompleted: true };
+        }
+        return r;
+      });
+
       await quizService.updateQuiz(quiz.id, {
         isFinished: true,
+        rounds: updatedRounds,
         participants: allParticipants
       });
-      setQuiz(prev => ({ ...prev, isFinished: true }));
+      setQuiz(prev => ({ ...prev, isFinished: true, rounds: updatedRounds }));
       confetti({
         particleCount: 130,
         spread: 100,
@@ -900,7 +944,7 @@ function QuizPlayPageContent() {
               {quiz.name}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
-              Round {currentRound}
+              Round {currentRound}{totalRounds > 1 ? ` of ${totalRounds}` : ''}
             </span>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
               {typeDef.name}
@@ -1039,7 +1083,9 @@ function QuizPlayPageContent() {
                 <p className="text-xs text-gray-400 max-w-md mx-auto">
                   {quiz?.isFinished
                     ? 'All rounds have concluded! You can review the final scores and rankings for each student.'
-                    : `All ${questionsList.length} questions in Round ${currentRound} have been answered. You can now review total marks, proceed to Round ${currentRound + 1}, or finish the quiz.`}
+                    : isLastRound
+                    ? `All questions in the final round (Round ${currentRound}) have been answered. You can now review total marks and finish the quiz.`
+                    : `All questions in Round ${currentRound} have been answered. You can now review total marks or proceed to Round ${currentRound + 1}.`}
                 </p>
               </div>
 
@@ -1060,7 +1106,7 @@ function QuizPlayPageContent() {
                 })()}
               </div>
 
-              {/* Buttons: 1) View Total Marks, 2) Proceed to Round N+1, 3) Finish Quiz */}
+              {/* Buttons: 1) View Total Marks, 2) Proceed to Round N+1 (ONLY IF NOT LAST ROUND), 3) Finish Quiz (ONLY IF LAST ROUND) */}
               <div className="flex flex-wrap items-center justify-center gap-3 pt-3">
                 <button
                   type="button"
@@ -1071,7 +1117,7 @@ function QuizPlayPageContent() {
                   <span>View Total Marks</span>
                 </button>
 
-                {!quiz?.isFinished && (
+                {!quiz?.isFinished && !isLastRound && (
                   <button
                     type="button"
                     onClick={handleProceedToNextRound}
@@ -1082,7 +1128,7 @@ function QuizPlayPageContent() {
                   </button>
                 )}
 
-                {!quiz?.isFinished && (
+                {!quiz?.isFinished && isLastRound && (
                   <button
                     type="button"
                     onClick={handleFinishQuiz}
@@ -1336,11 +1382,33 @@ function QuizPlayPageContent() {
               <button
                 type="button"
                 onClick={() => setActiveTab('wheel')}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-colors cursor-pointer shadow-md shadow-[#635BFF]/25"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-bold transition-colors cursor-pointer"
               >
                 <RotateCw className="w-3.5 h-3.5" />
                 <span>Back to Wheel</span>
               </button>
+
+              {isQuizCompleted && !quiz?.isFinished && !isLastRound && (
+                <button
+                  type="button"
+                  onClick={handleProceedToNextRound}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-colors cursor-pointer shadow-md shadow-[#635BFF]/25"
+                >
+                  <span>Proceed to Round {currentRound + 1}</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {isQuizCompleted && !quiz?.isFinished && isLastRound && (
+                <button
+                  type="button"
+                  onClick={handleFinishQuiz}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-md shadow-rose-600/25"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Finish Quiz</span>
+                </button>
+              )}
             </div>
           </div>
 
