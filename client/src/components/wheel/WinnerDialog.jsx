@@ -45,7 +45,8 @@ export default function WinnerDialog({
   liveState = null,
   onStartEvaluation = null,
   onFinishEvent = null,
-  onManualSelectNext = null
+  onManualSelectNext = null,
+  onUpdateRoundTask = null
 }) {
   const [taskCompleted, setTaskCompleted] = useState(false);
   const [taskInput, setTaskInput] = useState('');
@@ -73,12 +74,16 @@ export default function WinnerDialog({
 
   const handleSubmitTask = (e) => {
     if (e) e.preventDefault();
-    if (!taskInput || !taskInput.trim()) {
+    const trimmed = taskInput.trim();
+    if (!trimmed) {
       setTaskError('Please enter a task name before submitting.');
       return;
     }
     setTaskError('');
     setIsTaskSubmitted(true);
+    if (onUpdateRoundTask) {
+      onUpdateRoundTask(trimmed);
+    }
   };
 
   const handleSendToEvaluators = () => {
@@ -88,6 +93,9 @@ export default function WinnerDialog({
       return;
     }
     setIsTaskSubmitted(true);
+    if (onUpdateRoundTask) {
+      onUpdateRoundTask(chosenTask);
+    }
     if (onStartEvaluation) {
       onStartEvaluation(winner, chosenTask);
     }

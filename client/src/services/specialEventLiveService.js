@@ -253,6 +253,29 @@ export const specialEventLiveService = {
     return null;
   },
 
+  // Update round task in live state and broadcast to evaluators
+  async updateRoundTask(roundTask, roundNumber) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/ps/update-task`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roundTask, roundNumber })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.liveState) {
+          try {
+            localStorage.setItem('ps_live_state_cache', JSON.stringify(data.liveState));
+          } catch (_) {}
+          return data.liveState;
+        }
+      }
+    } catch (err) {
+      console.warn('API update-task error:', err);
+    }
+    return null;
+  },
+
   // 4. Finish student evaluation (sets waiting state for evaluators)
   async finishStudent(params = {}) {
     try {

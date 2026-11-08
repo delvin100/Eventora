@@ -513,6 +513,59 @@ export default function WheelWorkspacePage() {
     }
   };
 
+  const handleUpdateRoundTask = async (newTask) => {
+    if (!newTask) return;
+    const taskTrimmed = newTask.trim();
+
+    // 1. Update specialSettings state
+    const roundsCopy = [...(specialSettings?.rounds || [])];
+    const rIdx = roundsCopy.findIndex(r => r.roundNumber === currentRoundNumber);
+    if (rIdx >= 0) {
+      roundsCopy[rIdx] = { ...roundsCopy[rIdx], task: taskTrimmed };
+    } else {
+      roundsCopy.push({ roundNumber: currentRoundNumber, task: taskTrimmed });
+    }
+    const updatedSettings = { ...(specialSettings || {}), rounds: roundsCopy };
+    setSpecialSettings(updatedSettings);
+
+    // 2. Immediately update local liveState so UI and admin banner show the task instantly
+    setLiveState(prev => prev ? {
+      ...prev,
+      roundTask: taskTrimmed
+    } : {
+      eventId,
+      status: 'waiting',
+      currentRound: currentRoundNumber,
+      roundTask: taskTrimmed,
+      currentStudent: null,
+      submissions: {},
+      requiredEvaluators: []
+    });
+
+    try {
+      const cached = localStorage.getItem('ps_live_state_cache');
+      const parsed = cached ? JSON.parse(cached) : {};
+      parsed.roundTask = taskTrimmed;
+      localStorage.setItem('ps_live_state_cache', JSON.stringify(parsed));
+    } catch (_) {}
+
+    // 3. Persist settings to backend
+    try {
+      specialEventService.saveSpecialEventSettings(eventId, updatedSettings);
+    } catch (err) {
+      console.warn('Failed to save settings:', err);
+    }
+
+    // 4. Update backend liveState task so all evaluators polling /ps get the new task name immediately
+    try {
+      await specialEventLiveService.updateRoundTask(taskTrimmed, currentRoundNumber);
+    } catch (_) {
+      try {
+        await specialEventLiveService.setRound(currentRoundNumber, taskTrimmed);
+      } catch (_) {}
+    }
+  };
+
   const handleManualSendToEvaluation = async (participant) => {
     if (!participant) return;
 
@@ -1140,6 +1193,7 @@ export default function WheelWorkspacePage() {
         onStartEvaluation={handleStartEvaluation}
         onFinishEvent={handleFinishEventClick}
         onManualSelectNext={handleManualSelectNext}
+        onUpdateRoundTask={handleUpdateRoundTask}
       />
 
       <ConfirmDialog

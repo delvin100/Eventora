@@ -522,6 +522,35 @@ router.post('/finish-student', async (req, res, next) => {
 });
 
 /**
+ * POST /api/v1/ps/update-task
+ * Called when organizer sets or updates the round task in WinnerDialog
+ */
+router.post('/update-task', async (req, res, next) => {
+  try {
+    const { roundTask, roundNumber } = req.body;
+    const eventId = await getOrInitEventId();
+    const targetRound = Number(roundNumber) || activeLiveState.currentRound || 1;
+
+    if (roundTask !== undefined && roundTask !== null && roundTask !== '') {
+      activeLiveState.roundTask = roundTask;
+      if (eventId) {
+        await saveRoundTaskToSettings(eventId, targetRound, roundTask);
+      }
+    }
+
+    activeLiveState.updatedAt = new Date().toISOString();
+    await persistLiveState(eventId);
+
+    return res.json({
+      success: true,
+      liveState: activeLiveState
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/v1/ps/set-round
  * Called by admin to change or advance round
  */
