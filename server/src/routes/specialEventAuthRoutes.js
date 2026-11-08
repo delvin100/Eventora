@@ -247,6 +247,37 @@ async function getRoundTaskFromSettings(eventId, roundNumber) {
   return '';
 }
 
+async function saveRoundTaskToSettings(eventId, roundNumber, task) {
+  if (!supabase || !eventId || !task) return;
+  try {
+    const { data: existing } = await supabase
+      .from('results')
+      .select('id, result_snapshot')
+      .eq('event_id', eventId)
+      .eq('operation_type', 'special_event_settings')
+      .maybeSingle();
+
+    let settings = existing?.result_snapshot || {};
+    let rounds = Array.isArray(settings.rounds) ? [...settings.rounds] : [];
+    const rIdx = rounds.findIndex(r => Number(r.roundNumber) === Number(roundNumber));
+    if (rIdx >= 0) {
+      rounds[rIdx] = { ...rounds[rIdx], task };
+    } else {
+      rounds.push({ roundNumber: Number(roundNumber), task });
+    }
+    settings.rounds = rounds;
+
+    if (existing?.id) {
+      await supabase
+        .from('results')
+        .update({ result_snapshot: settings })
+        .eq('id', existing.id);
+    }
+  } catch (err) {
+    console.warn('Failed to auto-save round task to settings:', err);
+  }
+}
+
 async function getEvaluatedCountInRound(eventId, roundNumber) {
   if (!supabase || !eventId) return 0;
   try {
@@ -284,7 +315,9 @@ router.get('/live-state', async (req, res, next) => {
       }
 
       // Compute evaluated participant count for current round
-      activeLiveState.evaluatedCount = await getEvaluatedCountInRound(eventId, activeLiveState.currentRound || 1);
+      const dbCount = await getEvaluatedCountInRound(eventId, activeLiveState.currentRound || 1);
+      const memCount = Array.isArray(activeLiveState.completedStudentsInRound) ? activeLiveState.completedStudentsInRound.length : 0;
+      activeLiveState.evaluatedCount = Math.max(dbCount, memCount, activeLiveState.evaluatedCount || 0);
     }
     return res.json({
       success: true,
@@ -306,16 +339,29 @@ router.post('/start-evaluation', async (req, res, next) => {
 
     const evaluators = await getRequiredEvaluators(eventId);
 
+    const targetRound = roundNumber || activeLiveState.currentRound || 1;
+    let taskToUse = (roundTask !== undefined && roundTask !== null && roundTask !== '')
+      ? roundTask
+      : (activeLiveState.roundTask || '');
+
+    if (!taskToUse && eventId) {
+      taskToUse = await getRoundTaskFromSettings(eventId, targetRound) || '';
+    }
+
     activeLiveState = {
       eventId,
       status: 'evaluating',
-      currentRound: roundNumber || activeLiveState.currentRound || 1,
-      roundTask: (roundTask !== undefined && roundTask !== null) ? roundTask : (activeLiveState.roundTask || ''),
+      currentRound: targetRound,
+      roundTask: taskToUse,
       currentStudent: student,
       submissions: {},
       requiredEvaluators: evaluators,
       updatedAt: new Date().toISOString()
     };
+
+    if (taskToUse && eventId) {
+      await saveRoundTaskToSettings(eventId, targetRound, taskToUse);
+    }
 
     await persistLiveState(eventId);
 
@@ -440,12 +486,29 @@ router.post('/submit-score', async (req, res, next) => {
  */
 router.post('/finish-student', async (req, res, next) => {
   try {
+    const { studentId, roundNumber, evaluatedCount: explicitCount } = req.body || {};
     const eventId = await getOrInitEventId();
+
+    const targetStudentId = studentId || activeLiveState.currentStudent?.id;
+    if (targetStudentId) {
+      if (!Array.isArray(activeLiveState.completedStudentsInRound)) {
+        activeLiveState.completedStudentsInRound = [];
+      }
+      if (!activeLiveState.completedStudentsInRound.includes(targetStudentId)) {
+        activeLiveState.completedStudentsInRound.push(targetStudentId);
+      }
+    }
 
     activeLiveState.status = 'waiting';
     activeLiveState.currentStudent = null;
     activeLiveState.submissions = {};
     activeLiveState.updatedAt = new Date().toISOString();
+
+    const dbCount = eventId ? await getEvaluatedCountInRound(eventId, activeLiveState.currentRound || 1) : 0;
+    const memCount = Array.isArray(activeLiveState.completedStudentsInRound) ? activeLiveState.completedStudentsInRound.length : 0;
+    const expCount = typeof explicitCount === 'number' ? explicitCount : 0;
+
+    activeLiveState.evaluatedCount = Math.max(dbCount, memCount, expCount);
 
     await persistLiveState(eventId);
 
@@ -467,10 +530,22 @@ router.post('/set-round', async (req, res, next) => {
     const { roundNumber, roundTask } = req.body;
     const eventId = await getOrInitEventId();
 
-    activeLiveState.currentRound = Number(roundNumber) || 1;
-    if (roundTask !== undefined) {
+    const targetRound = Number(roundNumber) || 1;
+    activeLiveState.currentRound = targetRound;
+    activeLiveState.completedStudentsInRound = [];
+    activeLiveState.evaluatedCount = 0;
+
+    if (roundTask !== undefined && roundTask !== '') {
       activeLiveState.roundTask = roundTask;
+      if (eventId) {
+        await saveRoundTaskToSettings(eventId, targetRound, roundTask);
+      }
+    } else if (eventId) {
+      activeLiveState.roundTask = await getRoundTaskFromSettings(eventId, targetRound) || '';
+    } else {
+      activeLiveState.roundTask = '';
     }
+
     activeLiveState.status = 'waiting';
     activeLiveState.currentStudent = null;
     activeLiveState.submissions = {};

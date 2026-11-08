@@ -45,7 +45,8 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
     roundTask: '',
     currentStudent: null,
     submissions: {},
-    requiredEvaluators: []
+    requiredEvaluators: [],
+    evaluatedCount: 0
   });
 
   const [score, setScore] = useState('');
@@ -197,7 +198,9 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
   const configuredRoundObj = settings?.rounds?.find(r => Number(r.roundNumber) === Number(activeRoundNum));
   const currentTaskName = liveState.roundTask || configuredRoundObj?.task || '';
 
-  const ordinalWord = getOrdinalWord(activeRoundNum);
+  const evaluatedCount = Number(liveState.evaluatedCount) || 0;
+  const nextParticipantNumber = evaluatedCount + 1;
+  const participantOrdinal = getOrdinalWord(nextParticipantNumber);
 
   const parsedScore = Number(score) || 0;
   const parsedGrace = (grace === '' || isNaN(Number(grace))) ? 0 : Number(grace);
@@ -311,7 +314,7 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
 
             <div className="space-y-2">
               <h3 className="text-xl font-extrabold text-white">
-                Waiting for the {ordinalWord} one to participate...
+                Waiting for the {participantOrdinal} one to participate...
               </h3>
               <p className="text-xs text-gray-400 max-w-md mx-auto leading-relaxed">
                 The organizer is spinning the wheel. As soon as a participant is selected and activated, this screen will automatically load the scoring panel.
@@ -328,7 +331,7 @@ export default function PrathibhaDashboardPage({ session: propSession, onLogout 
 
             <div className="pt-2 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#1F2333] border border-gray-700/60 text-xs text-gray-300 font-medium">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Ready & listening for the {ordinalWord} participant</span>
+              <span>Ready & listening for the {participantOrdinal} participant</span>
             </div>
           </div>
         )}

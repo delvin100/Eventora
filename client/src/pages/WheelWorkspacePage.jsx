@@ -334,21 +334,31 @@ export default function WheelWorkspacePage() {
   const isEvalActive = liveState?.status === 'evaluating';
   const allCurrentEvaluatorsSubmitted = requiredEvaluators.length === 0 || submittedCount >= requiredEvaluators.length;
 
+  const isAllStudentsInCurrentRoundDone = allParticipants.length > 0 &&
+    (removedIds.size >= allParticipants.length || eligibleParticipants.length === 0);
+
+  const canStartNextRound =
+    isSpecialEvent &&
+    !isEventFinished &&
+    !isFinalRound &&
+    isAllStudentsInCurrentRoundDone &&
+    (!isEvalActive || allCurrentEvaluatorsSubmitted);
+
   const isAllRoundsCompleted =
     isSpecialEvent &&
     (isEventFinished ||
      (isFinalRound &&
-      (removedIds.size >= totalRoundsCount || eligibleParticipants.length === 0) &&
+      isAllStudentsInCurrentRoundDone &&
       (!isEvalActive || allCurrentEvaluatorsSubmitted)));
 
   // Finish Event button should appear when:
   // 1. It is the final round (isFinalRound)
-  // 2. All rounds have completed evaluation
+  // 2. All students in the final round have completed
   const canShowFinishEventButton =
     isSpecialEvent &&
     !isEventFinished &&
     isFinalRound &&
-    (removedIds.size >= totalRoundsCount || eligibleParticipants.length === 0) &&
+    isAllStudentsInCurrentRoundDone &&
     (!isEvalActive || allCurrentEvaluatorsSubmitted);
 
   const currentRoundObj = configuredRounds.find(r => r.roundNumber === currentRoundNumber) || {
@@ -461,21 +471,25 @@ export default function WheelWorkspacePage() {
     });
 
     const taskToUse = (taskOverride !== undefined && taskOverride !== null && taskOverride !== '')
-      ? taskOverride
+      ? taskOverride.trim()
       : currentRoundTask;
 
     if (taskToUse) {
-      setSpecialSettings(prev => {
-        if (!prev) return prev;
-        const roundsCopy = [...(prev.rounds || [])];
-        const rIdx = roundsCopy.findIndex(r => r.roundNumber === currentRoundNumber);
-        if (rIdx >= 0) {
-          roundsCopy[rIdx] = { ...roundsCopy[rIdx], task: taskToUse };
-        } else {
-          roundsCopy.push({ roundNumber: currentRoundNumber, task: taskToUse });
-        }
-        return { ...prev, rounds: roundsCopy };
-      });
+      const roundsCopy = [...(specialSettings?.rounds || [])];
+      const rIdx = roundsCopy.findIndex(r => r.roundNumber === currentRoundNumber);
+      if (rIdx >= 0) {
+        roundsCopy[rIdx] = { ...roundsCopy[rIdx], task: taskToUse };
+      } else {
+        roundsCopy.push({ roundNumber: currentRoundNumber, task: taskToUse });
+      }
+      const updatedSettings = { ...(specialSettings || {}), rounds: roundsCopy };
+      setSpecialSettings(updatedSettings);
+
+      try {
+        specialEventService.saveSpecialEventSettings(eventId, updatedSettings);
+      } catch (err) {
+        console.warn('Failed to save settings:', err);
+      }
     }
 
     const updated = await specialEventLiveService.startEvaluation({
@@ -671,35 +685,84 @@ export default function WheelWorkspacePage() {
 
   const handleNextSpinWithRemoval = async (winner) => {
     clearPendingWinner();
-    if (isSpecialEvent) {
-      try {
-        await specialEventLiveService.finishStudent();
-      } catch (_) {}
-    }
     const newRemoved = winner?.id ? new Set([...removedIds, winner.id]) : removedIds;
     setRemovedIds(newRemoved);
+    if (isSpecialEvent) {
+      try {
+        await specialEventLiveService.finishStudent({
+          studentId: winner?.id,
+          roundNumber: currentRoundNumber,
+          evaluatedCount: newRemoved.size
+        });
+      } catch (_) {}
+    }
     setIsWinnerDialogOpen(false);
 
-    // If Special Event: round 1 is finished, so advance to next round!
+    // If Special Event: Only advance round when ALL students in the list have completed the round!
     if (isSpecialEvent) {
+      const remainingStudents = allParticipants.filter(p => !newRemoved.has(p.id));
+
+      if (remainingStudents.length > 0) {
+        // More students still remain in the current round -> Stay in current round!
+        if (remainingStudents.length === 1) {
+          setTimeout(() => {
+            handleSpinEnd(remainingStudents[0]);
+          }, 300);
+        } else {
+          setTimeout(() => {
+            if (wheelRef.current) {
+              wheelRef.current.spin();
+            }
+          }, 120);
+        }
+        return;
+      }
+
+      // EVERY student in the list has completed this round!
       if (currentRoundNumber < totalRoundsCount) {
         const nextRound = currentRoundNumber + 1;
         setCurrentRoundNumber(nextRound);
         try {
           localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
         } catch (_) {}
+
+        // Reset exclusions so all students participate in the next round
+        setRemovedIds(new Set());
         try {
-          await specialEventLiveService.setRound(nextRound, '');
+          localStorage.removeItem(`eventora_removed_${eventId}_r${nextRound}`);
         } catch (_) {}
+
+        const nextRoundObj = configuredRounds.find(r => r.roundNumber === nextRound);
+        const nextTask = nextRoundObj?.task || '';
+
+        try {
+          await specialEventLiveService.setRound(nextRound, nextTask);
+        } catch (_) {}
+
         setLiveState(prev => prev ? {
           ...prev,
           currentRound: nextRound,
-          roundTask: '',
+          roundTask: nextTask,
           status: 'waiting',
           currentStudent: null,
           submissions: {}
         } : prev);
+
+        // All participants are ready for the new round
+        if (allParticipants.length === 1) {
+          setTimeout(() => {
+            handleSpinEnd(allParticipants[0]);
+          }, 300);
+        } else if (allParticipants.length > 1) {
+          setTimeout(() => {
+            if (wheelRef.current) {
+              wheelRef.current.spin();
+            }
+          }, 120);
+        }
+        return;
       } else {
+        // All students completed the final round!
         setIsFinishedPopupOpen(true);
         return;
       }
@@ -707,7 +770,6 @@ export default function WheelWorkspacePage() {
 
     const remaining = allParticipants.filter(p => !newRemoved.has(p.id));
     if (remaining.length === 1) {
-      // ONLY ONE PERSON LEFT IN THE WHEEL: Don't spin it, just show the things for it!
       setTimeout(() => {
         handleSpinEnd(remaining[0]);
       }, 300);
@@ -729,31 +791,6 @@ export default function WheelWorkspacePage() {
     }
     setIsWinnerDialogOpen(false);
 
-    // If Special Event: Advance round!
-    if (isSpecialEvent) {
-      if (currentRoundNumber < totalRoundsCount) {
-        const nextRound = currentRoundNumber + 1;
-        setCurrentRoundNumber(nextRound);
-        try {
-          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
-        } catch (_) {}
-        try {
-          await specialEventLiveService.setRound(nextRound, '');
-        } catch (_) {}
-        setLiveState(prev => prev ? {
-          ...prev,
-          currentRound: nextRound,
-          roundTask: '',
-          status: 'waiting',
-          currentStudent: null,
-          submissions: {}
-        } : prev);
-      } else {
-        setIsFinishedPopupOpen(true);
-        return;
-      }
-    }
-
     if (eligibleParticipants.length === 1) {
       setTimeout(() => {
         handleSpinEnd(eligibleParticipants[0]);
@@ -769,35 +806,59 @@ export default function WheelWorkspacePage() {
 
   const handleManualSelectNext = async (winner) => {
     clearPendingWinner();
-    if (isSpecialEvent) {
-      try {
-        await specialEventLiveService.finishStudent();
-      } catch (_) {}
-    }
     const newRemoved = winner?.id ? new Set([...removedIds, winner.id]) : removedIds;
     setRemovedIds(newRemoved);
+    if (isSpecialEvent) {
+      try {
+        await specialEventLiveService.finishStudent({
+          studentId: winner?.id,
+          roundNumber: currentRoundNumber,
+          evaluatedCount: newRemoved.size
+        });
+      } catch (_) {}
+    }
     setIsWinnerDialogOpen(false);
 
-    // If Special Event: Advance round to Round 2 (or next round) without auto-spinning!
+    // If Special Event: Only advance round when ALL students in the list have completed the round!
     if (isSpecialEvent) {
+      const remainingStudents = allParticipants.filter(p => !newRemoved.has(p.id));
+
+      if (remainingStudents.length > 0) {
+        // More students still remain in the current round -> Stay in current round and pick from dropdown
+        return;
+      }
+
+      // EVERY student in the list has completed this round!
       if (currentRoundNumber < totalRoundsCount) {
         const nextRound = currentRoundNumber + 1;
         setCurrentRoundNumber(nextRound);
         try {
           localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
         } catch (_) {}
+
+        // Reset exclusions so all students participate in the next round
+        setRemovedIds(new Set());
         try {
-          await specialEventLiveService.setRound(nextRound, '');
+          localStorage.removeItem(`eventora_removed_${eventId}_r${nextRound}`);
         } catch (_) {}
+
+        const nextRoundObj = configuredRounds.find(r => r.roundNumber === nextRound);
+        const nextTask = nextRoundObj?.task || '';
+
+        try {
+          await specialEventLiveService.setRound(nextRound, nextTask);
+        } catch (_) {}
+
         setLiveState(prev => prev ? {
           ...prev,
           currentRound: nextRound,
-          roundTask: '',
+          roundTask: nextTask,
           status: 'waiting',
           currentStudent: null,
           submissions: {}
         } : prev);
       } else {
+        // All students completed the final round!
         setIsFinishedPopupOpen(true);
       }
     }
@@ -809,24 +870,35 @@ export default function WheelWorkspacePage() {
     const newRemoved = new Set([...removedIds, winner.id]);
     setRemovedIds(newRemoved);
 
-    if (isSpecialEvent && isEvalActive && allCurrentEvaluatorsSubmitted) {
-      if (currentRoundNumber < totalRoundsCount) {
-        const nextRound = currentRoundNumber + 1;
-        setCurrentRoundNumber(nextRound);
-        try {
-          localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
-        } catch (_) {}
-        try {
-          await specialEventLiveService.setRound(nextRound, '');
-        } catch (_) {}
-        setLiveState(prev => prev ? {
-          ...prev,
-          currentRound: nextRound,
-          roundTask: '',
-          status: 'waiting',
-          currentStudent: null,
-          submissions: {}
-        } : prev);
+    if (isSpecialEvent) {
+      const remainingStudents = allParticipants.filter(p => !newRemoved.has(p.id));
+      if (remainingStudents.length === 0 && isEvalActive && allCurrentEvaluatorsSubmitted) {
+        if (currentRoundNumber < totalRoundsCount) {
+          const nextRound = currentRoundNumber + 1;
+          setCurrentRoundNumber(nextRound);
+          try {
+            localStorage.setItem(`eventora_round_${eventId}`, nextRound.toString());
+          } catch (_) {}
+          setRemovedIds(new Set());
+          try {
+            localStorage.removeItem(`eventora_removed_${eventId}_r${nextRound}`);
+          } catch (_) {}
+          const nextRoundObj = configuredRounds.find(r => r.roundNumber === nextRound);
+          const nextTask = nextRoundObj?.task || '';
+          try {
+            await specialEventLiveService.setRound(nextRound, nextTask);
+          } catch (_) {}
+          setLiveState(prev => prev ? {
+            ...prev,
+            currentRound: nextRound,
+            roundTask: nextTask,
+            status: 'waiting',
+            currentStudent: null,
+            submissions: {}
+          } : prev);
+        } else {
+          setIsFinishedPopupOpen(true);
+        }
       }
     }
   };
@@ -913,6 +985,19 @@ export default function WheelWorkspacePage() {
               </span>
             </div>
 
+            {/* Start Next Round Button (shown when all students in round completed and more rounds remain) */}
+            {canStartNextRound && (
+              <button
+                type="button"
+                onClick={() => handleSwitchRound(currentRoundNumber + 1, true)}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold shadow-md shadow-emerald-600/30 flex items-center gap-1.5 transition-colors cursor-pointer animate-pulse"
+                title={`All students completed Round ${currentRoundNumber}. Click to begin Round ${currentRoundNumber + 1}.`}
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Start Round {currentRoundNumber + 1}</span>
+              </button>
+            )}
+
             {/* Finish Event button */}
             {!isEventFinished ? (
               canShowFinishEventButton && (
@@ -981,7 +1066,9 @@ export default function WheelWorkspacePage() {
 
             {/* Quick Status Subtitle */}
             <div className="mt-4 text-xs font-medium text-gray-500 dark:text-gray-400 text-center">
-              {eligibleParticipants.length} of {allParticipants.length} participants eligible
+              {isSpecialEvent
+                ? `${eligibleParticipants.length} of ${allParticipants.length} students remaining in Round ${currentRoundNumber}`
+                : `${eligibleParticipants.length} of ${allParticipants.length} participants eligible`}
             </div>
           </div>
 
@@ -1041,6 +1128,10 @@ export default function WheelWorkspacePage() {
         assignedTask={assignedTask}
         onDrawAnotherTask={handleDrawAnotherTask}
         eligibleCount={eligibleParticipants.length}
+        remainingInRound={
+          allParticipants.filter(p => !removedIds.has(p.id) && p.id !== currentWinner?.id).length
+        }
+        allParticipantsCount={allParticipants.length}
         isSpecialEvent={isSpecialEvent}
         currentRound={currentRoundNumber}
         currentRoundTask={currentRoundTask}

@@ -36,6 +36,8 @@ export default function WinnerDialog({
   assignedTask = null,
   onDrawAnotherTask = null,
   eligibleCount = 0,
+  remainingInRound = 0,
+  allParticipantsCount = 0,
   isSpecialEvent = false,
   currentRound = 1,
   currentRoundTask = '',
@@ -52,19 +54,22 @@ export default function WinnerDialog({
 
   const isEvalActive = isSpecialEvent && liveState?.status === 'evaluating' && liveState?.currentStudent?.id === winner?.id;
 
+  const effectiveRoundTask = (currentRoundTask && currentRoundTask.trim()) || (liveState?.roundTask && liveState.roundTask.trim()) || '';
+  const hasExistingRoundTask = Boolean(effectiveRoundTask);
+
   // Sync task input whenever dialog opens, winner changes, or round changes
   useEffect(() => {
     if (isOpen && winner) {
-      if (isEvalActive) {
-        setTaskInput(liveState?.roundTask || currentRoundTask || '');
+      if (hasExistingRoundTask) {
+        setTaskInput(effectiveRoundTask);
         setIsTaskSubmitted(true);
       } else {
-        setTaskInput(currentRoundTask || '');
+        setTaskInput('');
         setIsTaskSubmitted(false);
       }
       setTaskError('');
     }
-  }, [isOpen, winner?.id, currentRound, isEvalActive]);
+  }, [isOpen, winner?.id, currentRound, hasExistingRoundTask, effectiveRoundTask]);
 
   const handleSubmitTask = (e) => {
     if (e) e.preventDefault();
@@ -76,6 +81,18 @@ export default function WinnerDialog({
     setIsTaskSubmitted(true);
   };
 
+  const handleSendToEvaluators = () => {
+    const chosenTask = (hasExistingRoundTask ? effectiveRoundTask : taskInput).trim();
+    if (!chosenTask) {
+      setTaskError('Please enter a task name before sending to evaluators.');
+      return;
+    }
+    setIsTaskSubmitted(true);
+    if (onStartEvaluation) {
+      onStartEvaluation(winner, chosenTask);
+    }
+  };
+
   if (!isOpen || !winner) return null;
 
   const requiredEvaluators = liveState?.requiredEvaluators || [];
@@ -84,16 +101,28 @@ export default function WinnerDialog({
   const allEvaluatorsSubmitted = requiredEvaluators.length === 0 || submittedCount >= requiredEvaluators.length;
   const isSpinLocked = isSpecialEvent && isEvalActive && !allEvaluatorsSubmitted;
 
-  const isFinalSpecialRound = isSpecialEvent && currentRound >= totalRounds;
+  const isRoundComplete = isSpecialEvent && remainingInRound === 0;
+  const isEventComplete = isRoundComplete && currentRound >= totalRounds;
+  const canAdvanceToNextRound = isRoundComplete && currentRound < totalRounds;
 
   const isNextSpinDisabled = isSpecialEvent ? (!isEvalActive || isSpinLocked) : isSpinLocked;
   const nextSpinSubtitle = isSpecialEvent && !isEvalActive
     ? 'Send to evaluators first'
     : isSpinLocked
-    ? 'Locked until scores submitted'
-    : isFinalSpecialRound
-    ? `Round ${currentRound} complete! Conclude event`
-    : `Remove ${winner.name} & advance to Round ${currentRound + 1}`;
+    ? 'Locked until all evaluators submit scores'
+    : isEventComplete
+    ? `All students finished final Round ${currentRound}! Conclude event`
+    : canAdvanceToNextRound
+    ? `All students finished Round ${currentRound}! Start Round ${currentRound + 1}`
+    : `Remove ${winner.name} & spin for next student (${remainingInRound} left in R${currentRound})`;
+
+  const manualSelectSubtitle = isSpecialEvent && !isEvalActive
+    ? 'Send to evaluators first'
+    : isSpinLocked
+    ? 'Locked until all evaluators submit scores'
+    : canAdvanceToNextRound
+    ? `All students finished Round ${currentRound}! Pick manually for Round ${currentRound + 1}`
+    : `Remove ${winner.name} & choose next student from list (${remainingInRound} left in R${currentRound})`;
 
   const handleMarkTaskCompleted = () => {
     setTaskCompleted(true);
@@ -238,64 +267,75 @@ export default function WinnerDialog({
 
             {!isEvalActive ? (
               <div className="space-y-3">
-                {/* Enter Task Section */}
-                <div className="space-y-1.5 p-3 rounded-xl bg-violet-500/10 border border-violet-500/20">
-                  <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <BookOpen className="w-3.5 h-3.5 text-violet-500" />
-                      <span>Enter Task (Round {currentRound}):</span>
-                    </span>
-                    {isTaskSubmitted && (
-                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3" /> Submitted
+                {/* Enter / Display Task Section */}
+                {hasExistingRoundTask ? (
+                  <div className="space-y-1.5 p-3 rounded-xl bg-violet-500/10 border border-violet-500/20">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-gray-800 dark:text-gray-200">
+                        <BookOpen className="w-3.5 h-3.5 text-violet-500" />
+                        <span>Round {currentRound} Task</span>
                       </span>
-                    )}
-                  </label>
-
-                  {!isTaskSubmitted ? (
-                    <form onSubmit={handleSubmitTask} className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={taskInput}
-                          onChange={(e) => {
-                            setTaskInput(e.target.value);
-                            if (taskError) setTaskError('');
-                          }}
-                          placeholder={`Enter task for ${winner.name}...`}
-                          autoFocus
-                          className="flex-1 px-3 py-2 text-xs rounded-xl bg-white dark:bg-[#12141F] border border-violet-300 dark:border-violet-700/60 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500"
-                        />
-                        <button
-                          type="submit"
-                          className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs shadow-sm hover:shadow-violet-600/30 transition-all cursor-pointer flex items-center gap-1.5 shrink-0 active:scale-95"
-                        >
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Submit</span>
-                        </button>
-                      </div>
-                      {taskError && (
-                        <p className="text-[11px] text-red-500 font-semibold px-0.5">{taskError}</p>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/25 flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Locked
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 p-2.5 rounded-xl bg-white/70 dark:bg-[#12141F]/80 border border-violet-400/30">
+                      <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <span className="text-xs font-black text-gray-900 dark:text-white truncate">
+                        {effectiveRoundTask}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5 p-3 rounded-xl bg-violet-500/10 border border-violet-500/20">
+                    <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <BookOpen className="w-3.5 h-3.5 text-violet-500" />
+                        <span>Enter Task (Round {currentRound}):</span>
+                      </span>
+                      {isTaskSubmitted && (
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 text-emerald-500">
+                          <CheckCircle2 className="w-3 h-3" /> Task Set & Locked
+                        </span>
                       )}
-                    </form>
-                  ) : (
-                    <div className="flex items-center justify-between p-2 rounded-lg bg-white/70 dark:bg-[#12141F]/80 border border-violet-400/30">
-                      <div className="flex items-center gap-2 min-w-0">
+                    </label>
+
+                    {!isTaskSubmitted ? (
+                      <form onSubmit={handleSubmitTask} className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={taskInput}
+                            onChange={(e) => {
+                              setTaskInput(e.target.value);
+                              if (taskError) setTaskError('');
+                            }}
+                            placeholder={`Enter task for Round ${currentRound}...`}
+                            autoFocus
+                            className="flex-1 px-3 py-2 text-xs rounded-xl bg-white dark:bg-[#12141F] border border-violet-300 dark:border-violet-700/60 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500"
+                          />
+                          <button
+                            type="submit"
+                            className="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs shadow-sm hover:shadow-violet-600/30 transition-all cursor-pointer flex items-center gap-1.5 shrink-0 active:scale-95"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Set Task</span>
+                          </button>
+                        </div>
+                        {taskError && (
+                          <p className="text-[11px] text-red-500 font-semibold px-0.5">{taskError}</p>
+                        )}
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-white/70 dark:bg-[#12141F]/80 border border-violet-400/30">
                         <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                         <span className="text-xs font-bold text-gray-900 dark:text-white truncate">
                           {taskInput.trim()}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setIsTaskSubmitted(false)}
-                        className="text-[11px] font-semibold text-violet-600 dark:text-violet-400 hover:underline cursor-pointer px-2 py-0.5 rounded hover:bg-violet-500/10 shrink-0"
-                      >
-                        Edit
-                      </button>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
 
                 <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
                   Click below to activate <strong>{winner.name}</strong> on all evaluator screens simultaneously.
@@ -303,10 +343,10 @@ export default function WinnerDialog({
 
                 <button
                   type="button"
-                  disabled={!isTaskSubmitted}
-                  onClick={() => onStartEvaluation && onStartEvaluation(winner, taskInput.trim())}
+                  disabled={!hasExistingRoundTask && !isTaskSubmitted && !taskInput.trim()}
+                  onClick={handleSendToEvaluators}
                   className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md transition-all ${
-                    isTaskSubmitted
+                    (hasExistingRoundTask || isTaskSubmitted || taskInput.trim())
                       ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white shadow-violet-600/30 cursor-pointer active:scale-[0.99]'
                       : 'bg-gray-200 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed shadow-none border border-gray-300 dark:border-gray-700/60'
                   }`}
@@ -315,9 +355,9 @@ export default function WinnerDialog({
                   <span>Send to Evaluators (Load Scoring Page)</span>
                 </button>
 
-                {!isTaskSubmitted && (
+                {!hasExistingRoundTask && !isTaskSubmitted && !taskInput.trim() && (
                   <p className="text-[10px] text-amber-600 dark:text-amber-400 text-center font-medium">
-                    Submit the task above to enable sending to evaluators.
+                    Enter the task above to enable sending to evaluators.
                   </p>
                 )}
               </div>
@@ -391,8 +431,32 @@ export default function WinnerDialog({
 
           {isSpecialEvent || isFairTurn ? (
             <div className="space-y-3 pt-1">
-              {/* If Special Event and not the final round, show Next Spin AND Manual Select buttons side-by-side */}
-              {isSpecialEvent && !isFinalSpecialRound ? (
+              {/* SPECIAL EVENT: If event is fully complete, show Conclude Event button */}
+              {isSpecialEvent && isEventComplete ? (
+                <button
+                  disabled={isNextSpinDisabled}
+                  onClick={() => {
+                    setTaskCompleted(false);
+                    if (onFinishEvent) {
+                      onFinishEvent();
+                    } else {
+                      onClose();
+                    }
+                  }}
+                  className={`w-full py-3.5 px-4 rounded-xl text-white font-semibold text-xs shadow-md flex flex-col items-center justify-center gap-0.5 transition-all bg-gradient-to-r from-amber-500 via-rose-500 to-red-600 hover:from-amber-600 hover:to-red-700 shadow-rose-600/25 ${
+                    isNextSpinDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer active:scale-[0.99]'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 font-bold text-sm">
+                    <Flag className="w-4 h-4" />
+                    <span>Conclude Special Event (View Report)</span>
+                  </span>
+                  <span className="text-[11px] text-white/90 font-normal">
+                    {nextSpinSubtitle}
+                  </span>
+                </button>
+              ) : isSpecialEvent ? (
+                /* SPECIAL EVENT (In Progress): Show Next Spin AND Manual Select buttons side-by-side */
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Left: Next Spin button (spins automatically) */}
                   <button
@@ -413,10 +477,14 @@ export default function WinnerDialog({
                   >
                     <span className="flex items-center gap-1.5 font-bold text-xs sm:text-[13px] whitespace-nowrap">
                       <RotateCw className="w-4 h-4 shrink-0" />
-                      <span className="whitespace-nowrap">Next Spin (Round {currentRound + 1})</span>
+                      <span className="whitespace-nowrap">
+                        {canAdvanceToNextRound
+                          ? `Complete R${currentRound} & Spin (R${currentRound + 1})`
+                          : `Next Spin (Round ${currentRound})`}
+                      </span>
                     </span>
                     <span className="text-[11px] text-white/80 font-normal truncate max-w-full">
-                      {isNextSpinDisabled ? nextSpinSubtitle : `Remove ${winner.name} & spin wheel`}
+                      {nextSpinSubtitle}
                     </span>
                   </button>
 
@@ -438,22 +506,24 @@ export default function WinnerDialog({
                   >
                     <span className="flex items-center gap-1.5 font-bold text-xs sm:text-[13px] whitespace-nowrap">
                       <UserCheck className="w-4 h-4 shrink-0" />
-                      <span className="whitespace-nowrap">Select Manually (Round {currentRound + 1})</span>
+                      <span className="whitespace-nowrap">
+                        {canAdvanceToNextRound
+                          ? `Complete R${currentRound} & Select (R${currentRound + 1})`
+                          : `Select Manually (Round ${currentRound})`}
+                      </span>
                     </span>
                     <span className="text-[11px] text-white/80 font-normal truncate max-w-full">
-                      {isNextSpinDisabled ? nextSpinSubtitle : `Remove ${winner.name} & choose from list`}
+                      {manualSelectSubtitle}
                     </span>
                   </button>
                 </div>
               ) : (
-                /* Single button: When final round (Finish Event) or fair turn non-special event */
+                /* Regular Non-Special Event with Fair Turn */
                 <button
                   disabled={isNextSpinDisabled}
                   onClick={() => {
                     setTaskCompleted(false);
-                    if (isFinalSpecialRound && onFinishEvent) {
-                      onFinishEvent();
-                    } else if (onNextSpinRemove) {
+                    if (onNextSpinRemove) {
                       onNextSpinRemove(winner);
                     } else {
                       onRemoveWinner(winner);
@@ -461,23 +531,13 @@ export default function WinnerDialog({
                       onSpinAgain();
                     }
                   }}
-                  className={`w-full py-3.5 px-4 rounded-xl text-white font-semibold text-xs shadow-md flex flex-col items-center justify-center gap-0.5 transition-all ${
-                    isFinalSpecialRound
-                      ? 'bg-gradient-to-r from-amber-500 via-rose-500 to-red-600 hover:from-amber-600 hover:to-red-700 shadow-rose-600/25'
-                      : 'bg-[#635BFF] hover:bg-[#5145E5] shadow-[#635BFF]/25'
-                  } ${
+                  className={`w-full py-3.5 px-4 rounded-xl text-white font-semibold text-xs shadow-md flex flex-col items-center justify-center gap-0.5 transition-all bg-[#635BFF] hover:bg-[#5145E5] shadow-[#635BFF]/25 ${
                     isNextSpinDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                   }`}
                 >
                   <span className="flex items-center gap-1.5 font-bold text-sm">
-                    {isFinalSpecialRound ? <Flag className="w-4 h-4" /> : <RotateCw className="w-4 h-4" />}
-                    <span>
-                      {isFinalSpecialRound
-                        ? 'Finish Event & View Report'
-                        : isSpecialEvent
-                        ? `Next Spin (Round ${currentRound + 1})`
-                        : 'Next Spin'}
-                    </span>
+                    <RotateCw className="w-4 h-4" />
+                    <span>Next Spin</span>
                   </span>
                   <span className="text-[11px] text-white/80 font-normal">
                     {nextSpinSubtitle}

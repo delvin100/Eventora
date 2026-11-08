@@ -254,11 +254,12 @@ export const specialEventLiveService = {
   },
 
   // 4. Finish student evaluation (sets waiting state for evaluators)
-  async finishStudent() {
+  async finishStudent(params = {}) {
     try {
       const res = await fetch(`${API_BASE_URL}/ps/finish-student`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
       });
       if (res.ok) {
         const data = await res.json();
