@@ -4,12 +4,9 @@ import { X, Plus, ListOrdered } from 'lucide-react';
 export default function CreateListModal({ isOpen, onClose, onCreateList }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('General');
   const [namesText, setNamesText] = useState('');
 
   if (!isOpen) return null;
-
-  const categories = ['General', 'Classroom', 'Team activity', 'Lucky draw', 'Tournament'];
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -27,7 +24,6 @@ export default function CreateListModal({ isOpen, onClose, onCreateList }) {
     onCreateList({
       name: name.trim(),
       description: description.trim(),
-      category,
       entries
     });
 
@@ -39,7 +35,7 @@ export default function CreateListModal({ isOpen, onClose, onCreateList }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden">
+      <div className="bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 rounded-3xl max-w-lg w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         
         <div className="px-6 py-4.5 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -47,8 +43,10 @@ export default function CreateListModal({ isOpen, onClose, onCreateList }) {
             <h3 className="font-bold text-base text-gray-900 dark:text-white">Create Reusable Master List</h3>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 active:scale-95 transition-all cursor-pointer"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
@@ -68,19 +66,6 @@ export default function CreateListModal({ isOpen, onClose, onCreateList }) {
               placeholder="e.g. Master Student Roster or Team Members"
               className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-medium text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
             />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-medium text-gray-900 dark:text-white"
-            >
-              {categories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
           </div>
 
           <div>

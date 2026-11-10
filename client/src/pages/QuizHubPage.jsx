@@ -137,12 +137,14 @@ export default function QuizHubPage() {
         }
       }
 
-      const firstRound = mergedRounds[0];
+      const activeRoundNum = scope === 'single' ? (targetRoundNumber || 1) : (quiz.currentRound || 1);
+      const activeRound = mergedRounds.find(r => r.roundNumber === activeRoundNum) || mergedRounds[0];
 
       await quizService.updateQuiz(quiz.id, {
+        currentRound: activeRoundNum,
         rounds: mergedRounds,
-        quizType: firstRound?.quizType || quiz.quizType,
-        questions: firstRound?.questions || []
+        quizType: activeRound?.quizType || quiz.quizType,
+        questions: activeRound?.questions || []
       });
 
       await fetchQuiz();
@@ -174,7 +176,7 @@ export default function QuizHubPage() {
         <h2 className="text-xl font-black text-gray-900 dark:text-white">Quiz Not Found</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400">{error || 'This quiz could not be located.'}</p>
         <Link
-          to="/app/quiz"
+          to="/home/quiz"
           className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] text-white text-xs font-bold shadow-md shadow-[#635BFF]/25 hover:bg-[#5145E5] transition-all"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -198,7 +200,7 @@ export default function QuizHubPage() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400">
           <Link
-            to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
+            to={location.state?.fromAdminAllQuizzes ? "/home/admin/quizzes" : "/home/quiz"}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-all shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -289,7 +291,7 @@ export default function QuizHubPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card 1: Questions */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/questions`, { state: { quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+          onClick={() => navigate(`/home/quiz/${quizSlug}/questions`, { state: { quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-violet-500/80 dark:hover:border-violet-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
@@ -339,7 +341,7 @@ export default function QuizHubPage() {
 
         {/* Card 2: Participants */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, tab: 'participants', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+          onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, tab: 'participants', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-sky-500/80 dark:hover:border-sky-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-sky-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
@@ -375,7 +377,7 @@ export default function QuizHubPage() {
 
         {/* Card 3: Start Quiz */}
         <div
-          onClick={() => navigate(`/app/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+          onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
           className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#635BFF] to-[#4F46E5] text-white p-6 sm:p-7 shadow-lg shadow-[#635BFF]/25 hover:shadow-2xl hover:shadow-[#635BFF]/35 hover:-translate-y-1 transition-all cursor-pointer ring-1 ring-white/20"
         >
           <div className="space-y-4">

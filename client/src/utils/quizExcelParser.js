@@ -152,11 +152,18 @@ export async function parseQuizExcel(dataBuffer, options = {}) {
     const hasOptions = rawOptions.length >= 2;
     const roundType = resolveRoundType(roundTypeRaw, hasOptions);
 
+    const explicitFormat = normalizedRow['format'] || normalizedRow['questionformat'] || '';
+    const normFormat = String(explicitFormat).toLowerCase();
+    const isExplicitDirect = normFormat.includes('direct') || normFormat.includes('verbal') || normFormat.includes('qonly') || normFormat === 'answer';
+    const isExplicitMcq = normFormat.includes('mcq') || normFormat.includes('choice');
+
+    const isDirectFormat = roundType === 'answer_to_question' || isExplicitDirect || (!hasOptions && (roundType === 'media_based' || Boolean(correctAnswerVal) || !isExplicitMcq));
+
     let structuredOptions = [];
     let directAnswer = '';
 
-    if (roundType === 'answer_to_question' || (!hasOptions && correctAnswerVal)) {
-      directAnswer = correctAnswerVal || 'No answer specified';
+    if (isDirectFormat) {
+      directAnswer = correctAnswerVal || '';
     } else {
       // It is an MCQ
       if (rawOptions.length < 2) {
@@ -197,7 +204,8 @@ export async function parseQuizExcel(dataBuffer, options = {}) {
       mediaUrl: questionMedia,
       mediaType: questionMediaType,
       options: structuredOptions,
-      answer: directAnswer
+      answer: directAnswer,
+      format: isDirectFormat ? 'direct' : 'mcq'
     };
 
     if (!roundsMap.has(roundNumber)) {

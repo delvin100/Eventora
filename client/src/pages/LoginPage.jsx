@@ -10,7 +10,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate('/app', { replace: true });
+      navigate('/home', { replace: true });
     }
   }, [user, authLoading, navigate]);
 
@@ -34,7 +34,7 @@ export default function LoginPage() {
       if (error) {
         setErrorMsg(error.message || 'Failed to sign in.');
       } else {
-        navigate('/app');
+        navigate('/home');
       }
     } catch (err) {
       setErrorMsg('An unexpected error occurred. Please try again.');

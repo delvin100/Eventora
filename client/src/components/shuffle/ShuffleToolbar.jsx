@@ -29,7 +29,7 @@ export default function ShuffleToolbar({
           className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
             mode === 'order'
               ? 'bg-[#635BFF] text-white shadow-md shadow-[#635BFF]/25'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+              : 'bg-gray-100 dark:bg-[#1E2235] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#282D44] hover:text-gray-900 dark:hover:text-white'
           }`}
         >
           <ListOrdered className="w-4 h-4" />
@@ -41,7 +41,7 @@ export default function ShuffleToolbar({
           className={`px-4 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer ${
             mode === 'pick'
               ? 'bg-[#635BFF] text-white shadow-md shadow-[#635BFF]/25'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
+              : 'bg-gray-100 dark:bg-[#1E2235] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#282D44] hover:text-gray-900 dark:hover:text-white'
           }`}
         >
           <Dice5 className="w-4 h-4" />
@@ -61,10 +61,10 @@ export default function ShuffleToolbar({
                 key={cnt}
                 disabled={cnt > maxCount}
                 onClick={() => onPickCountChange(cnt)}
-                className={`w-8 h-8 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                   pickCount === cnt
-                    ? 'bg-[#635BFF] text-white'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 disabled:opacity-30'
+                    ? 'bg-[#635BFF] text-white shadow-xs'
+                    : 'bg-gray-100 dark:bg-[#1E2235] text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-[#282D44] hover:text-gray-900 dark:hover:text-white disabled:opacity-30'
                 }`}
               >
                 {cnt}
@@ -76,7 +76,7 @@ export default function ShuffleToolbar({
               max={maxCount}
               value={pickCount}
               onChange={(e) => onPickCountChange(Math.max(1, Math.min(maxCount, Number(e.target.value) || 1)))}
-              className="w-14 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-bold text-center text-gray-900 dark:text-white"
+              className="w-14 px-2 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-xs font-bold text-center text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-[#635BFF]"
             />
           </div>
         </div>
@@ -88,7 +88,7 @@ export default function ShuffleToolbar({
           <>
             <button
               onClick={onReset}
-              className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 transition-colors cursor-pointer"
+              className="p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-[#1E2235] text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white transition-colors cursor-pointer"
               title="Reset to original list order"
             >
               <RotateCcw className="w-4 h-4" />
@@ -96,7 +96,7 @@ export default function ShuffleToolbar({
 
             <button
               onClick={onExport}
-              className="px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-[#1E2235] text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
               title="Export results"
             >
               <Download className="w-4 h-4" />

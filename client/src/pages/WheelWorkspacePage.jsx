@@ -14,7 +14,6 @@ import { participantService } from '../services/participantService';
 import { resultService } from '../services/resultService';
 import { specialEventService } from '../services/specialEventService';
 import { specialEventLiveService } from '../services/specialEventLiveService';
-import { TASK_PACKS } from '../utils/taskBank';
 import { formatDate } from '../utils/dateUtils';
 
 export default function WheelWorkspacePage() {
@@ -61,21 +60,6 @@ export default function WheelWorkspacePage() {
     return 5;
   });
 
-  // Student Task Assignment mode (Persisted across refreshes)
-  const [assignTaskMode, setAssignTaskMode] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`eventora_wheel_assign_task_${eventId}`);
-      if (saved !== null) return saved === 'true';
-    } catch (_) {}
-    return false;
-  });
-  const [selectedTaskPack, setSelectedTaskPack] = useState(() => {
-    try {
-      const saved = localStorage.getItem(`eventora_wheel_task_pack_${eventId}`);
-      if (saved) return saved;
-    } catch (_) {}
-    return 'catechism_faith';
-  });
   const [assignedTask, setAssignedTask] = useState(null);
 
   // Winner dialog & history
@@ -200,15 +184,6 @@ export default function WheelWorkspacePage() {
       if (eventId) localStorage.setItem(`eventora_wheel_duration_${eventId}`, duration.toString());
     } catch (_) {}
   }, [duration, eventId]);
-
-  useEffect(() => {
-    if (eventId) {
-      try {
-        localStorage.setItem(`eventora_wheel_assign_task_${eventId}`, assignTaskMode.toString());
-        localStorage.setItem(`eventora_wheel_task_pack_${eventId}`, selectedTaskPack);
-      } catch (_) {}
-    }
-  }, [assignTaskMode, selectedTaskPack, eventId]);
 
   // Synchronize persisted settings when eventId loads or updates
   useEffect(() => {
@@ -658,35 +633,16 @@ export default function WheelWorkspacePage() {
     setCurrentWinner(null);
   };
 
-  const pickTaskFromPack = (packId) => {
-    const pack = TASK_PACKS.find(p => p.id === packId) || TASK_PACKS[0];
-    if (!pack || !pack.tasks || pack.tasks.length === 0) return null;
-    const randomIndex = Math.floor(Math.random() * pack.tasks.length);
-    return pack.tasks[randomIndex];
-  };
-
-  const handleDrawAnotherTask = () => {
-    const newTask = pickTaskFromPack(selectedTaskPack);
-    setAssignedTask(newTask);
-  };
-
   const handleSpinEnd = (winner) => {
     setIsSpinning(false);
     setCurrentWinner(winner);
-
-    let currentTask = null;
-    if (assignTaskMode) {
-      currentTask = pickTaskFromPack(selectedTaskPack);
-      setAssignedTask(currentTask);
-    } else {
-      setAssignedTask(null);
-    }
+    setAssignedTask(null);
 
     setIsWinnerDialogOpen(true);
     try {
       localStorage.setItem(`eventora_current_winner_${eventId}`, JSON.stringify({
         winner,
-        assignedTask: currentTask,
+        assignedTask: null,
         round: currentRoundNumber
       }));
     } catch (_) {}
@@ -710,7 +666,7 @@ export default function WheelWorkspacePage() {
     const entry = {
       id: 'spin-' + Date.now(),
       winner,
-      assignedTask: currentTask,
+      assignedTask: null,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       date: formatDate(new Date())
     };
@@ -720,14 +676,13 @@ export default function WheelWorkspacePage() {
     // Save snapshot record directly into Supabase results table
     resultService.saveResult({
       event_id: eventId,
-      result_name: currentTask ? `Task Spotlight: ${winner.name} (${currentTask.title})` : `Wheel Winner: ${winner.name}`,
+      result_name: `Wheel Winner: ${winner.name}`,
       operation_type: 'wheel',
-      settings: { duration, removeWinnerOnDraw, soundEnabled, assignTaskMode, selectedTaskPack },
+      settings: { duration, removeWinnerOnDraw, soundEnabled },
       result_snapshot: {
         winner: winner.name,
         winner_id: winner.id,
-        participant_count: eligibleParticipants.length,
-        task: currentTask
+        participant_count: eligibleParticipants.length
       }
     }).catch(err => {
       console.error('Failed to log wheel result to Supabase:', err);
@@ -1091,7 +1046,7 @@ export default function WheelWorkspacePage() {
           </p>
           <div className="pt-2">
             <Link
-              to={`/app/events/${eventId}`}
+              to={`/home/events/${eventId}`}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25"
             >
               <Users className="w-4 h-4" />
@@ -1141,10 +1096,6 @@ export default function WheelWorkspacePage() {
               onResetParticipants={handleResetExclusions}
               removedCount={removedIds.size}
               eligibleCount={eligibleParticipants.length}
-              assignTaskMode={assignTaskMode}
-              onToggleAssignTaskMode={setAssignTaskMode}
-              selectedTaskPack={selectedTaskPack}
-              onSelectTaskPack={setSelectedTaskPack}
               isSpecialEvent={isSpecialEvent}
               eligibleParticipants={eligibleParticipants}
               onManualSendToEvaluation={handleManualSendToEvaluation}
@@ -1178,8 +1129,8 @@ export default function WheelWorkspacePage() {
         onSpinAgainKeep={handleNextSpinKeepWinner}
         isFairTurn={removeWinnerOnDraw}
         canRemove={!removedIds.has(currentWinner?.id)}
-        assignedTask={assignedTask}
-        onDrawAnotherTask={handleDrawAnotherTask}
+        assignedTask={null}
+        onDrawAnotherTask={null}
         eligibleCount={eligibleParticipants.length}
         remainingInRound={
           allParticipants.filter(p => !removedIds.has(p.id) && p.id !== currentWinner?.id).length

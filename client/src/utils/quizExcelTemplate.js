@@ -95,6 +95,24 @@ export function downloadQuizExcelTemplate() {
       'Marks': 2,
       '2nd Try Marks': '',
       'Time Limit (sec)': 60
+    },
+    {
+      'Round Number': 4,
+      'Round Name': 'Media & Visual Round',
+      'Round Type': 'media_based',
+      'Round Intro Media': '',
+      'Round Intro Type': '',
+      'Question': 'Identify the world-famous landmark shown in this picture.',
+      'Question Media': 'https://images.unsplash.com/photo-1511739001486-6bfe10ce785f?auto=format&fit=crop&w=600&q=80',
+      'Question Media Type': 'image',
+      'Option A': 'Eiffel Tower',
+      'Option B': 'Big Ben',
+      'Option C': 'Colosseum',
+      'Option D': 'Leaning Tower of Pisa',
+      'Correct Answer': 'A',
+      'Marks': 2,
+      '2nd Try Marks': '',
+      'Time Limit (sec)': 30
     }
   ];
 
@@ -132,6 +150,7 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
   const headers = [
     'Question',
     'Question Media',
+    'Question Media Type',
     'Option A',
     'Option B',
     'Option C',
@@ -139,13 +158,15 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
     'Correct Answer',
     'Marks',
     '2nd Try Marks',
-    'Time Limit (sec)'
+    'Time Limit (sec)',
+    'Round Type'
   ];
 
   const sampleRows = [
     {
       'Question': 'What is the capital city of France?',
       'Question Media': '',
+      'Question Media Type': '',
       'Option A': 'London',
       'Option B': 'Berlin',
       'Option C': 'Paris',
@@ -153,11 +174,13 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
       'Correct Answer': 'C',
       'Marks': 1,
       '2nd Try Marks': '',
-      'Time Limit (sec)': 30
+      'Time Limit (sec)': 30,
+      'Round Type': ''
     },
     {
       'Question': 'കേരളത്തിലെ ഏറ്റവും വലിയ ജില്ല ഏത്?',
       'Question Media': '',
+      'Question Media Type': '',
       'Option A': 'വയനാട്',
       'Option B': 'ഇടുക്കി',
       'Option C': 'പാലക്കാട്',
@@ -165,11 +188,13 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
       'Correct Answer': 'B',
       'Marks': 1,
       '2nd Try Marks': '',
-      'Time Limit (sec)': 30
+      'Time Limit (sec)': 30,
+      'Round Type': ''
     },
     {
       'Question': 'തിരുസഭയിൽ ആകെ എത്ര കൂദാശകളാണുള്ളത്? (Direct Q&A Example)',
       'Question Media': '',
+      'Question Media Type': '',
       'Option A': '',
       'Option B': '',
       'Option C': '',
@@ -177,7 +202,8 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
       'Correct Answer': '7 കൂദാശകൾ',
       'Marks': 2,
       '2nd Try Marks': '',
-      'Time Limit (sec)': 45
+      'Time Limit (sec)': 45,
+      'Round Type': 'answer_to_question'
     }
   ];
 
@@ -186,6 +212,7 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
   worksheet['!cols'] = [
     { wch: 45 }, // Question
     { wch: 30 }, // Question Media
+    { wch: 20 }, // Question Media Type
     { wch: 20 }, // Option A
     { wch: 20 }, // Option B
     { wch: 20 }, // Option C
@@ -193,7 +220,8 @@ export function downloadSingleRoundExcelTemplate(roundNumber = 1) {
     { wch: 25 }, // Correct Answer
     { wch: 10 }, // Marks
     { wch: 14 }, // 2nd Try Marks
-    { wch: 18 }  // Time Limit (sec)
+    { wch: 18 }, // Time Limit (sec)
+    { wch: 25 }  // Round Type
   ];
 
   const workbook = XLSX.utils.book_new();

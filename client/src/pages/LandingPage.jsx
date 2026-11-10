@@ -26,7 +26,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-3">
             {user ? (
               <Link
-                to="/app"
+                to="/home"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-sm font-semibold shadow-md shadow-[#635BFF]/25 hover:shadow-lg hover:shadow-[#635BFF]/35 transition-all"
               >
                 <LayoutDashboard className="w-4 h-4" />
@@ -76,7 +76,7 @@ export default function LandingPage() {
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
                 {user ? (
                   <Link
-                    to="/app"
+                    to="/home"
                     className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-8 py-3.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-base shadow-lg shadow-[#635BFF]/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
                   >
                     <LayoutDashboard className="w-5 h-5" />

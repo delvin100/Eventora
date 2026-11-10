@@ -1006,7 +1006,7 @@ function QuizPlayPageContent() {
         <HelpCircle className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto" />
         <h3 className="text-base font-bold text-gray-900 dark:text-white">Quiz not found</h3>
         <p className="text-xs text-gray-400">The quiz may have been removed or does not exist.</p>
-        <Link to="/app/quiz" className="text-xs font-semibold text-[#635BFF] hover:underline">
+        <Link to="/home/quiz" className="text-xs font-semibold text-[#635BFF] hover:underline">
           Return to Quizzes
         </Link>
       </div>
@@ -1029,14 +1029,14 @@ function QuizPlayPageContent() {
         <div className="space-y-1.5">
           <nav className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
             <Link
-              to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
+              to={location.state?.fromAdminAllQuizzes ? "/home/admin/quizzes" : "/home/quiz"}
               className="hover:text-gray-900 dark:hover:text-white transition-colors"
             >
               {location.state?.fromAdminAllQuizzes ? "All User Quizzes" : "All Quizzes"}
             </Link>
             <span>/</span>
             <Link
-              to={`/app/quiz/${quizSlug}`}
+              to={`/home/quiz/${quizSlug}`}
               state={{ quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes }}
               className="hover:text-[#635BFF] transition-colors truncate max-w-[200px]"
             >
@@ -1113,7 +1113,7 @@ function QuizPlayPageContent() {
           )}
 
           <Link
-            to={`/app/quiz/${quizSlug}/questions`}
+            to={`/home/quiz/${quizSlug}/questions`}
             state={{ quizId: quiz.id, round: currentRound }}
             className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-xs"
           >
@@ -1436,7 +1436,7 @@ function QuizPlayPageContent() {
                     Set up questions for Round {currentRound} first, then come back here to spin the wheel.
                   </p>
                   <Link
-                    to={`/app/quiz/${quizSlug}/questions`}
+                    to={`/home/quiz/${quizSlug}/questions`}
                     state={{ quizId: quiz.id, round: currentRound }}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all shadow-md shadow-[#635BFF]/30 cursor-pointer"
                   >

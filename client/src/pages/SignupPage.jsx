@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, ArrowRight, Zap, AlertCircle, GraduationCap, Briefcase, Gift, Heart, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Zap, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import EventoraLogo from '../components/EventoraLogo';
 import { useAuth } from '../context/AuthContext';
 
@@ -10,7 +10,7 @@ export default function SignupPage() {
 
   useEffect(() => {
     if (!authLoading && user) {
-      navigate('/app', { replace: true });
+      navigate('/home', { replace: true });
     }
   }, [user, authLoading, navigate]);
 
@@ -18,21 +18,13 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [usageType, setUsageType] = useState('education');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  const usageOptions = [
-    { id: 'education', label: 'Education', icon: GraduationCap, desc: 'Students, classrooms, quizzes' },
-    { id: 'team', label: 'Work & Teams', icon: Briefcase, desc: 'Agile standups, tasks, sprints' },
-    { id: 'events', label: 'Events & Draws', icon: Gift, desc: 'Raffles, giveaways, contests' },
-    { id: 'personal', label: 'Personal', icon: Heart, desc: 'Games, decisions, family fun' }
-  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!displayName.trim()) {
-      setErrorMsg('Please enter your name or organization.');
+      setErrorMsg('Please enter your name.');
       return;
     }
     if (!email.trim()) {
@@ -47,19 +39,15 @@ export default function SignupPage() {
       setErrorMsg('Password must be at least 6 characters.');
       return;
     }
-    if (!usageType) {
-      setErrorMsg('Please select your primary intended use.');
-      return;
-    }
 
     try {
       setLoading(true);
       setErrorMsg('');
-      const { error } = await signUp(email.trim(), password, displayName.trim(), usageType);
+      const { error } = await signUp(email.trim(), password, displayName.trim());
       if (error) {
         setErrorMsg(error.message || 'Failed to create account.');
       } else {
-        navigate('/app');
+        navigate('/home');
       }
     } catch (err) {
       setErrorMsg('An unexpected error occurred. Please try again.');
@@ -97,7 +85,7 @@ export default function SignupPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-                Your Name / Organization
+                Your Name
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-gray-400 absolute left-3.5 top-3.5" />
@@ -105,7 +93,7 @@ export default function SignupPage() {
                   type="text"
                   value={displayName}
                   onChange={(e) => setDisplayName(e.target.value)}
-                  placeholder="e.g. Sarah Jenkins or Math Dept"
+                  placeholder="e.g. Sarah Jenkins"
                   required
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 focus:border-[#635BFF]"
                 />
@@ -152,39 +140,6 @@ export default function SignupPage() {
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
-              </div>
-            </div>
-
-            {/* Usage Intent */}
-            <div className="pt-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-2">
-                Primary Intended Use
-              </label>
-              <div className="grid grid-cols-2 gap-2.5">
-                {usageOptions.map((opt) => {
-                  const Icon = opt.icon;
-                  const isSelected = usageType === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setUsageType(opt.id)}
-                      className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
-                        isSelected
-                          ? 'border-[#635BFF] bg-indigo-50/70 dark:bg-indigo-950/40 text-[#635BFF] dark:text-[#8B85FF]'
-                          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-[#141722] text-gray-700 dark:text-gray-300 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4 shrink-0" />
-                        <span className="font-semibold text-xs">{opt.label}</span>
-                      </div>
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
-                        {opt.desc}
-                      </span>
-                    </button>
-                  );
-                })}
               </div>
             </div>
 

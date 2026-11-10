@@ -67,7 +67,7 @@ function StylishOrganizerDropdown({ value, onChange, users, totalQuizzesCount })
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 sm:right-auto sm:left-0 mt-1.5 w-72 max-h-72 overflow-y-auto rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-2xl p-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute right-0 mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2rem)] max-h-72 overflow-y-auto rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-2xl p-1.5 z-40 animate-in fade-in zoom-in-95 duration-100">
           {/* Option All */}
           <button
             type="button"
@@ -211,7 +211,7 @@ export default function AdminAllQuizzesPage() {
   }, [isAdmin]);
 
   if (!isAdmin) {
-    return <Navigate to="/app" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   const handleDeleteQuiz = async () => {
@@ -422,7 +422,7 @@ export default function AdminAllQuizzesPage() {
             />
 
             <Link
-              to="/app/quiz"
+              to="/home/quiz"
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25 transition-all shrink-0 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
@@ -515,7 +515,7 @@ export default function AdminAllQuizzesPage() {
                 key={quiz.id}
                 onClick={() => {
                   try { sessionStorage.setItem('eventora_admin_quiz_active', 'true'); } catch (_) {}
-                  navigate(`/app/quiz/${quizSlug}`, { state: { quizId: quiz.id, fromAdminAllQuizzes: true } });
+                  navigate(`/home/quiz/${quizSlug}`, { state: { quizId: quiz.id, fromAdminAllQuizzes: true } });
                 }}
                 className="group relative flex flex-col justify-between rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 hover:border-violet-500/70 dark:hover:border-violet-500/70 transition-all p-5 shadow-xs hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-0.5 cursor-pointer"
               >

@@ -237,10 +237,14 @@ export default function QuizWorkspacePage() {
           setIsTypeConfirmed(true);
         }
 
+        const effectiveQuizType = currentRound === roundNum
+          ? (updatedRounds.find(r => r.roundNumber === roundNum)?.quizType || selectedRoundType)
+          : (updatedRounds.find(r => r.roundNumber === currentRound)?.quizType || selectedRoundType);
+
         await quizService.updateQuiz(targetQuizId, {
           name: quizName,
           description: quizDescription,
-          quizType: selectedRoundType,
+          quizType: effectiveQuizType,
           currentRound,
           rounds: updatedRounds,
           questions: currentRound === roundNum
@@ -750,7 +754,7 @@ export default function QuizWorkspacePage() {
         document.title = `${quizName} | Eventora Quiz`;
         const slug = slugify(quizName);
         if (slug && quizId !== slug) {
-          navigate(`/app/quiz/${slug}/questions`, { replace: true, state: { ...location.state, quizId: quiz.id, round: currentRound } });
+          navigate(`/home/quiz/${slug}/questions`, { replace: true, state: { ...location.state, quizId: quiz.id, round: currentRound } });
         }
       }
     } catch (err) {
@@ -818,11 +822,11 @@ export default function QuizWorkspacePage() {
       });
 
       const slug = slugify(quizName) || targetQuizId;
-      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
+      navigate(`/home/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
     } catch (err) {
       console.error('Auto-save before next step failed:', err);
       const slug = slugify(quizName) || targetQuizId;
-      navigate(`/app/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
+      navigate(`/home/quiz/${slug}/play`, { state: { quizId: targetQuizId, round: 1, tab: 'participants' } });
     } finally {
       setSaving(false);
     }
@@ -1199,7 +1203,7 @@ export default function QuizWorkspacePage() {
         <HelpCircle className="w-10 h-10 text-gray-300 dark:text-gray-600 mx-auto" />
         <h3 className="text-base font-bold text-gray-900 dark:text-white">Quiz not found</h3>
         <p className="text-xs text-gray-400">The quiz may have been removed or does not exist.</p>
-        <Link to="/app/quiz" className="text-xs font-semibold text-[#635BFF] hover:underline">
+        <Link to="/home/quiz" className="text-xs font-semibold text-[#635BFF] hover:underline">
           Return to Quizzes
         </Link>
       </div>
@@ -1213,7 +1217,7 @@ export default function QuizWorkspacePage() {
       {/* Breadcrumb Navigation */}
       <nav className="flex items-center gap-2 text-xs font-semibold text-gray-500">
         <Link
-          to={location.state?.fromAdminAllQuizzes ? "/app/admin/quizzes" : "/app/quiz"}
+          to={location.state?.fromAdminAllQuizzes ? "/home/admin/quizzes" : "/home/quiz"}
           className="inline-flex items-center gap-1.5 hover:text-gray-900 dark:hover:text-white transition-colors"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -1221,7 +1225,7 @@ export default function QuizWorkspacePage() {
         </Link>
         <span className="text-gray-300 dark:text-gray-700">/</span>
         <Link
-          to={`/app/quiz/${slugify(quizName) || quiz?.id}`}
+          to={`/home/quiz/${slugify(quizName) || quiz?.id}`}
           state={{ quizId: quiz?.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes }}
           className="text-gray-900 dark:text-white font-bold hover:text-[#635BFF] transition-colors truncate max-w-xs"
         >

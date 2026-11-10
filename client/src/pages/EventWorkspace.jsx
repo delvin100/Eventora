@@ -7,7 +7,6 @@ import {
   Shuffle,
   UsersRound,
   History,
-  Award,
   Settings,
   Crown,
   FileText,
@@ -141,25 +140,24 @@ export default function EventWorkspace() {
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
   const isOtherUserEvent = isAdmin && event?.owner_id && event.owner_id !== user?.id;
   const isSpecialEvent = event?.category === 'Special Event' || location.state?.fromSpecialEvents;
-  const backPath = isOtherUserEvent ? '/app/admin/events' : isSpecialEvent ? '/app/special-events' : '/app/events';
-  const backLabel = isOtherUserEvent ? 'All User Events' : isSpecialEvent ? 'Special Events' : 'My Events';
+  const backPath = location.state?.fromEvents ? '/home/events' : isSpecialEvent ? '/home/special-events' : '/home/events';
+  const backLabel = location.state?.fromEvents ? 'Events' : isSpecialEvent ? 'Special Events' : 'Events';
 
   const currentSlug = event?.name ? slugify(event.name) : eventId;
 
   const tabs = [
-    { name: 'Participants', to: `/app/events/${currentSlug}`, end: true, icon: Users },
-    { name: 'Wheel', to: `/app/events/${currentSlug}/wheel`, icon: RotateCw },
-    { name: 'Tasks & Missions', to: `/app/events/${currentSlug}/tasks`, icon: Award },
-    { name: 'Shuffle', to: `/app/events/${currentSlug}/shuffle`, icon: Shuffle },
-    { name: 'Groups', to: `/app/events/${currentSlug}/groups`, icon: UsersRound },
-    { name: 'Results', to: `/app/events/${currentSlug}/results`, icon: History },
+    { name: 'Participants', to: `/home/events/${currentSlug}`, end: true, icon: Users },
+    { name: 'Wheel', to: `/home/events/${currentSlug}/wheel`, icon: RotateCw },
+    { name: 'Shuffle', to: `/home/events/${currentSlug}/shuffle`, icon: Shuffle },
+    { name: 'Groups', to: `/home/events/${currentSlug}/groups`, icon: UsersRound },
+    { name: 'Results', to: `/home/events/${currentSlug}/results`, icon: History },
   ];
 
   // For Special Events only: add Settings tab after Results
   if (isSpecialEvent) {
     tabs.push({
       name: 'Settings',
-      to: `/app/events/${currentSlug}/settings`,
+      to: `/home/events/${currentSlug}/settings`,
       icon: Settings
     });
   }
@@ -170,14 +168,14 @@ export default function EventWorkspace() {
   useEffect(() => {
     if (!loading && event && participantCount === 0) {
       const isParticipantsTab =
-        location.pathname === `/app/events/${currentSlug}` ||
-        location.pathname === `/app/events/${eventId}` ||
-        location.pathname === `/app/events/${currentSlug}/` ||
-        location.pathname === `/app/events/${eventId}/`;
+        location.pathname === `/home/events/${currentSlug}` ||
+        location.pathname === `/home/events/${eventId}` ||
+        location.pathname === `/home/events/${currentSlug}/` ||
+        location.pathname === `/home/events/${eventId}/`;
       const isSettingsTab = location.pathname.endsWith('/settings');
 
       if (!isParticipantsTab && !isSettingsTab) {
-        navigate(`/app/events/${currentSlug}`, { replace: true, state: location.state });
+        navigate(`/home/events/${currentSlug}`, { replace: true, state: location.state });
       }
     }
   }, [loading, event?.id, participantCount, location.pathname, currentSlug, eventId]);
@@ -202,7 +200,7 @@ export default function EventWorkspace() {
           This is a restricted special event. You have not been granted access by the administrator to view or interact with this workspace.
         </p>
         <Link
-          to="/app/events"
+          to="/home/events"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -217,7 +215,7 @@ export default function EventWorkspace() {
       <div className="py-20 text-center space-y-3">
         <h3 className="text-base font-bold text-gray-900 dark:text-white">Event not found</h3>
         <p className="text-xs text-gray-400">The event could not be found or belongs to another user.</p>
-        <Link to="/app/events" className="text-xs font-semibold text-[#635BFF] hover:underline">
+        <Link to="/home/events" className="text-xs font-semibold text-[#635BFF] hover:underline">
           Return to Events List
         </Link>
       </div>
@@ -261,11 +259,11 @@ export default function EventWorkspace() {
             </div>
           </div>
           <Link
-            to="/app/admin/events"
+            to={backPath}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600/20 hover:bg-violet-600/40 border border-violet-500/40 text-xs font-semibold text-violet-200 transition-all cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to All User Events</span>
+            <span>Back to {backLabel}</span>
           </Link>
         </div>
       )}

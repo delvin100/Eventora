@@ -329,14 +329,34 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.stroke();
 
-      // Segment Typography (Radial along the slice centerline)
-      ctx.save();
       const midAngle = angle + arc / 2;
+
+      // Subtle inner rim dot (present on every segment, centered on spoke)
+      ctx.save();
+      ctx.beginPath();
+      const dotRadius = wheelRadius * 0.30;
+      ctx.arc(
+        Math.cos(midAngle) * dotRadius,
+        Math.sin(midAngle) * dotRadius,
+        2.8, 0, 2 * Math.PI
+      );
+      ctx.fillStyle = theme.accent;
+      ctx.fill();
+      ctx.restore();
+
+      // Segment Typography (Radial along the slice centerline, always upright)
+      ctx.save();
       ctx.rotate(midAngle);
 
       // Radial placement: centered in the spacious portion of the wedge
       const textRadius = wheelRadius * 0.60;
       ctx.translate(textRadius, 0);
+
+      // Prevent upside-down text on the left/western hemisphere of the wheel
+      const screenAngle = ((rotation + midAngle) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      if (screenAngle > Math.PI / 2 && screenAngle < (3 * Math.PI) / 2) {
+        ctx.rotate(Math.PI);
+      }
 
       // Drop shadow for legibility
       ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
@@ -370,13 +390,6 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       } else {
         ctx.fillText(lines[0], 0, 0);
       }
-
-      // Subtle inner rim dot (present on every segment)
-      ctx.shadowColor = 'transparent';
-      ctx.beginPath();
-      ctx.arc(-textRadius + wheelRadius * 0.30, 0, 2.8, 0, 2 * Math.PI);
-      ctx.fillStyle = theme.accent;
-      ctx.fill();
 
       ctx.restore();
     }

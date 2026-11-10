@@ -3,8 +3,8 @@ import { supabase } from '../lib/supabase';
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 export const specialEventService = {
-  // Fetch all special events (category: 'Special Event') with participant, allocation, and user access counts
-  // Admins see all special events. Normal users ONLY see special events they have been granted access to.
+  // Fetch special events (category: 'Special Event')
+  // Admins see all special events (with owner info). Normal users see their own personal special events.
   async getSpecialEvents(currentUser) {
     let user = currentUser;
     if (!user && supabase) {
@@ -30,82 +30,51 @@ export const specialEventService = {
     // 2. Direct Supabase Fallback
     if (!supabase) return [];
 
+    const { data: allocData } = await supabase
+      .from('results')
+      .select('event_id, result_snapshot')
+      .eq('operation_type', 'special_event_allocations');
+
+    const allocCountMap = {};
+    (allocData || []).forEach(r => {
+      allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
+    });
+
     if (isAdmin) {
-      const [{ data: eventsData, error: evErr }, { data: allocData }, { data: accessData }] = await Promise.all([
-        supabase
-          .from('events')
-          .select('*, participants(id)')
-          .eq('category', 'Special Event')
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('results')
-          .select('event_id, result_snapshot')
-          .eq('operation_type', 'special_event_allocations'),
-        supabase
-          .from('results')
-          .select('event_id, result_snapshot')
-          .eq('operation_type', 'special_event_user_access')
-      ]);
+      const { data: eventsData, error: evErr } = await supabase
+        .from('events')
+        .select('*, participants(id)')
+        .eq('category', 'Special Event')
+        .order('created_at', { ascending: false });
 
       if (evErr) {
         console.error('Error fetching special events from Supabase:', evErr);
         return [];
       }
 
-      const allocCountMap = {};
-      (allocData || []).forEach(r => {
-        allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
-      });
-
-      const accessCountMap = {};
-      (accessData || []).forEach(r => {
-        accessCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
-      });
-
       return (eventsData || []).map(ev => ({
         ...ev,
         participantCount: ev.participants ? ev.participants.length : 0,
-        allocatedUserCount: allocCountMap[ev.id] || 0,
-        grantedUserCount: accessCountMap[ev.id] || 0
+        allocatedUserCount: allocCountMap[ev.id] || 0
       }));
     } else {
-      // Normal user: ONLY return special events where this user has been granted access
-      const { data: accessRecords } = await supabase
-        .from('results')
-        .select('event_id, result_snapshot')
-        .eq('operation_type', 'special_event_user_access');
-
-      const allowedEventIds = [];
-      (accessRecords || []).forEach(rec => {
-        const list = Array.isArray(rec.result_snapshot) ? rec.result_snapshot : [];
-        const isGranted = list.some(u =>
-          (u.id && u.id === user.id) ||
-          (u.userId && u.userId === user.id) ||
-          (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase())
-        );
-        if (isGranted) {
-          allowedEventIds.push(rec.event_id);
-        }
-      });
-
-      if (allowedEventIds.length === 0) {
-        return [];
-      }
-
+      // Normal user: ONLY return special events where owner_id is current user
       const { data: eventsData, error: evErr } = await supabase
         .from('events')
         .select('*, participants(id)')
-        .in('id', allowedEventIds)
         .eq('category', 'Special Event')
+        .eq('owner_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (evErr) return [];
+      if (evErr) {
+        console.error('Error fetching personal special events:', evErr);
+        return [];
+      }
 
       return (eventsData || []).map(ev => ({
         ...ev,
         participantCount: ev.participants ? ev.participants.length : 0,
-        allocatedUserCount: 0,
-        grantedUserCount: 0
+        allocatedUserCount: allocCountMap[ev.id] || 0
       }));
     }
   },

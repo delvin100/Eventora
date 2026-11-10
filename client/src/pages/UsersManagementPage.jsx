@@ -5,16 +5,10 @@ import {
   Search,
   Trash2,
   CalendarDays,
-  FolderKanban,
   ShieldAlert,
   AlertCircle,
   CheckCircle2,
-  Loader2,
-  Sparkles,
-  UserCheck,
-  Mail,
-  UserX,
-  HelpCircle
+  Mail
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { userService } from '../services/userService';
@@ -51,9 +45,9 @@ export default function UsersManagementPage() {
     }
   }, [isAdmin]);
 
-  // If normal user tries to access this page, redirect to /app
+  // If normal user tries to access this page, redirect to /home
   if (!isAdmin) {
-    return <Navigate to="/app" replace />;
+    return <Navigate to="/home" replace />;
   }
 
   const handleDeleteUser = async () => {
@@ -85,8 +79,7 @@ export default function UsersManagementPage() {
     if (!q) return true;
     return (
       (u.displayName && u.displayName.toLowerCase().includes(q)) ||
-      (u.email && u.email.toLowerCase().includes(q)) ||
-      (u.usageType && u.usageType.toLowerCase().includes(q))
+      (u.email && u.email.toLowerCase().includes(q))
     );
   });
 
@@ -153,7 +146,7 @@ export default function UsersManagementPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search users by name, email, or usage..."
+            placeholder="Search users by name or email..."
             className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#151823] text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500 transition-all shadow-sm"
           />
         </div>
@@ -183,21 +176,19 @@ export default function UsersManagementPage() {
         </div>
       ) : filteredUsers.length === 0 ? (
         <div className="bg-white dark:bg-[#151823] rounded-2xl border border-dashed border-gray-200 dark:border-gray-800 p-8 text-center text-xs text-gray-400">
-          No users match "{search}".
+          No users match &ldquo;{search}&rdquo;.
         </div>
       ) : (
         <div className="bg-white dark:bg-[#151823] rounded-2xl border border-gray-200/90 dark:border-gray-800/90 shadow-sm overflow-hidden">
           {/* Table for md+ screens */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-center border-collapse">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-[#12141F] text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                  <th className="py-3.5 px-5">User</th>
-                  <th className="py-3.5 px-5">Email</th>
-                  <th className="py-3.5 px-5">Usage Type</th>
-                  <th className="py-3.5 px-5">Events & Quizzes</th>
-                  <th className="py-3.5 px-5">Joined Date</th>
-                  <th className="py-3.5 px-5 text-right">Actions</th>
+                  <th className="py-3.5 px-5 text-center">User</th>
+                  <th className="py-3.5 px-5 text-center">Email</th>
+                  <th className="py-3.5 px-5 text-center">Joined Date</th>
+                  <th className="py-3.5 px-5 text-center">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-800 text-xs">
@@ -207,74 +198,38 @@ export default function UsersManagementPage() {
                     className="hover:bg-gray-50/60 dark:hover:bg-[#1A1D2B] transition-colors"
                   >
                     {/* User display name & avatar */}
-                    <td className="py-4 px-5">
-                      <div className="flex items-center gap-3">
+                    <td className="py-4 px-5 text-center">
+                      <div className="inline-flex items-center justify-center gap-3 text-left">
                         <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600/20 to-indigo-600/20 border border-violet-500/30 text-violet-700 dark:text-violet-300 font-extrabold text-sm flex items-center justify-center shrink-0">
                           {(u.displayName || u.email || 'U').charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                          <p className="font-bold text-gray-900 dark:text-white">
-                            {u.displayName || 'Unnamed User'}
-                          </p>
-                          <span className="text-[10px] text-gray-400 font-mono">
-                            ID: {u.id.slice(0, 8)}...
-                          </span>
-                        </div>
+                        <p className="font-bold text-gray-900 dark:text-white">
+                          {u.displayName || 'Unnamed User'}
+                        </p>
                       </div>
                     </td>
 
                     {/* Email */}
-                    <td className="py-4 px-5">
-                      <div className="flex items-center gap-1.5 text-gray-700 dark:text-gray-300">
+                    <td className="py-4 px-5 text-center">
+                      <div className="inline-flex items-center justify-center gap-1.5 text-gray-700 dark:text-gray-300">
                         <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                         <span>{u.email}</span>
                       </div>
                     </td>
 
-                    {/* Usage Type */}
-                    <td className="py-4 px-5">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 border border-violet-200/60 dark:border-violet-800/60">
-                        {u.usageType || 'Personal'}
-                      </span>
-                    </td>
-
-                    {/* Events & Quizzes count */}
-                    <td className="py-4 px-5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Link
-                          to={`/app/admin/events?user=${u.id}`}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 font-semibold text-xs border border-indigo-200/60 dark:border-indigo-800/60 transition-all cursor-pointer"
-                          title={`View ${u.displayName}'s events in All Events Explorer`}
-                        >
-                          <FolderKanban className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                          <span>
-                            {u.eventsCount || 0} Event{(u.eventsCount || 0) === 1 ? '' : 's'}
-                          </span>
-                        </Link>
-                        <Link
-                          to={`/app/admin/quizzes?user=${u.id}`}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/80 text-violet-700 dark:text-violet-300 font-semibold text-xs border border-violet-200/60 dark:border-violet-800/60 transition-all cursor-pointer"
-                          title={`View ${u.displayName}'s quizzes in All Quizzes Explorer`}
-                        >
-                          <HelpCircle className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-                          <span>Quizzes</span>
-                        </Link>
-                      </div>
-                    </td>
-
                     {/* Joined Date */}
-                    <td className="py-4 px-5 text-gray-500 dark:text-gray-400">
-                      <div className="flex items-center gap-1.5">
+                    <td className="py-4 px-5 text-center text-gray-500 dark:text-gray-400">
+                      <div className="inline-flex items-center justify-center gap-1.5">
                         <CalendarDays className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                         <span>{u.createdAt ? formatDate(u.createdAt) : 'Recently'}</span>
                       </div>
                     </td>
 
                     {/* Action: Delete */}
-                    <td className="py-4 px-5 text-right">
+                    <td className="py-4 px-5 text-center">
                       <button
                         onClick={() => setUserToDelete(u)}
-                        className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 border border-transparent hover:border-red-200 dark:hover:border-red-900 transition-all cursor-pointer"
+                        className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 border border-transparent hover:border-red-200 dark:hover:border-red-900 transition-all cursor-pointer inline-flex items-center justify-center"
                         title={`Delete account for ${u.displayName}`}
                       >
                         <Trash2 className="w-4 h-4" />

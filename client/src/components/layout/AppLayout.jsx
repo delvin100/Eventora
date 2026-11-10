@@ -4,17 +4,12 @@ import {
   LayoutDashboard,
   CalendarDays,
   ListOrdered,
-  History,
-  FileBox,
-  Settings,
   Plus,
-  ChevronLeft,
-  ChevronRight,
+  PanelLeft,
   LogOut,
   Menu,
   X,
   HelpCircle,
-  Sparkles,
   Zap,
   Crown,
   Users,
@@ -22,7 +17,6 @@ import {
 } from 'lucide-react';
 import EventoraLogo from '../EventoraLogo';
 import { useAuth } from '../../context/AuthContext';
-import { specialEventService } from '../../services/specialEventService';
 
 export default function AppLayout() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
@@ -31,44 +25,17 @@ export default function AppLayout() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [hasSpecialEventAccess, setHasSpecialEventAccess] = useState(false);
 
   // Check if current user is admin
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
 
-  // Check if user has access to any special event
-  useEffect(() => {
-    let isMounted = true;
-    if (authLoading) return;
-
-    if (isAdmin) {
-      setHasSpecialEventAccess(true);
-      return;
-    }
-    if (user?.id || user?.email) {
-      specialEventService.getSpecialEvents(user).then((events) => {
-        if (isMounted) {
-          setHasSpecialEventAccess(Array.isArray(events) && events.length > 0);
-        }
-      }).catch(() => {});
-    } else {
-      setHasSpecialEventAccess(false);
-    }
-    return () => { isMounted = false; };
-  }, [user?.id, user?.email, isAdmin, authLoading]);
-
   const navItems = [
-    { name: 'Overview', to: '/app', icon: LayoutDashboard, exact: true },
-    { name: 'My Events', to: '/app/events', icon: CalendarDays },
-    ...((isAdmin || hasSpecialEventAccess) ? [{ name: 'Special Events', to: '/app/special-events', icon: Crown }] : []),
-    { name: 'Quiz', to: '/app/quiz', icon: HelpCircle },
-    ...(isAdmin ? [{ name: 'All User Events', to: '/app/admin/events', icon: Globe, isAdminOnly: true }] : []),
-    ...(isAdmin ? [{ name: 'All User Quizzes', to: '/app/admin/quizzes', icon: HelpCircle, isAdminOnly: true }] : []),
-    { name: 'All Lists', to: '/app/lists', icon: ListOrdered },
-    { name: 'Recent Results', to: '/app/results', icon: History },
-    { name: 'Templates', to: '/app/templates', icon: FileBox },
-    ...(isAdmin ? [{ name: 'Users', to: '/app/users', icon: Users }] : []),
-    { name: 'Settings', to: '/app/settings', icon: Settings },
+    { name: 'Overview', to: '/home', icon: LayoutDashboard, exact: true },
+    { name: 'Events', to: '/home/events', icon: CalendarDays },
+    { name: 'Special Events', to: '/home/special-events', icon: Crown },
+    { name: 'Quiz', to: '/home/quiz', icon: HelpCircle },
+    { name: 'Lists', to: '/home/lists', icon: ListOrdered },
+    ...(isAdmin ? [{ name: 'Users', to: '/home/users', icon: Users }] : []),
   ];
 
   const handleSignOut = async () => {
@@ -80,7 +47,7 @@ export default function AppLayout() {
 
   // Check if currently viewing a Special Event (URL, state, or session cache)
   const isSpecialEventPath = (() => {
-    if (location.pathname.startsWith('/app/special-events')) return true;
+    if (location.pathname.startsWith('/home/special-events')) return true;
     if (location.state?.fromSpecialEvents) return true;
     if (location.pathname.includes('prathibha-sangamam') || location.pathname.includes('cd396f58-15bc-4c68-bb44-70e0f9d86a9c')) return true;
     try {
@@ -93,11 +60,11 @@ export default function AppLayout() {
 
   // Synchronize admin quiz navigation session tracking
   useEffect(() => {
-    if (location.pathname === '/app/quiz') {
+    if (location.pathname === '/home/quiz') {
       try {
         sessionStorage.removeItem('eventora_admin_quiz_active');
       } catch (_) {}
-    } else if (location.pathname.startsWith('/app/admin/quizzes') || location.state?.fromAdminAllQuizzes) {
+    } else if (location.pathname.startsWith('/home/admin/quizzes') || location.state?.fromAdminAllQuizzes) {
       try {
         sessionStorage.setItem('eventora_admin_quiz_active', 'true');
       } catch (_) {}
@@ -106,9 +73,9 @@ export default function AppLayout() {
 
   const isAdminQuizPath = (() => {
     if (!isAdmin) return false;
-    if (location.pathname.startsWith('/app/admin/quizzes')) return true;
+    if (location.pathname.startsWith('/home/admin/quizzes')) return true;
     if (location.state?.fromAdminAllQuizzes) return true;
-    if (location.pathname.startsWith('/app/quiz') && location.pathname !== '/app/quiz') {
+    if (location.pathname.startsWith('/home/quiz') && location.pathname !== '/home/quiz') {
       try {
         return sessionStorage.getItem('eventora_admin_quiz_active') === 'true';
       } catch (_) {
@@ -120,13 +87,13 @@ export default function AppLayout() {
 
   const getIsNavItemActive = (item) => {
     if (isSpecialEventPath) {
-      if (item.to === '/app/special-events') return true;
-      if (item.to === '/app/events') return false;
+      if (item.to === '/home/special-events') return true;
+      if (item.to === '/home/events') return false;
       return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
     }
     if (isAdminQuizPath) {
-      if (item.to === '/app/admin/quizzes') return true;
-      if (item.to === '/app/quiz') return false;
+      if (item.to === '/home/admin/quizzes') return true;
+      if (item.to === '/home/quiz') return false;
       return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
     }
     return item.exact ? location.pathname === item.to : location.pathname.startsWith(item.to);
@@ -145,32 +112,30 @@ export default function AppLayout() {
           sidebarCollapsed ? 'w-20' : 'w-64'
         }`}
       >
-        {/* Top: Logo & Collapse button */}
-        <div className="h-18 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800/80 shrink-0">
-          <Link to="/app" className="flex items-center overflow-hidden">
-            {sidebarCollapsed ? (
-              <div className="w-10 h-10 flex items-center justify-center rounded-xl bg-[#635BFF] text-white">
-                <Sparkles className="w-5 h-5" />
-              </div>
-            ) : (
+        {/* Top: Logo & Toggle sidebar button */}
+        <div className={`h-16 flex items-center border-b border-gray-100 dark:border-gray-800/80 shrink-0 ${
+          sidebarCollapsed ? 'justify-center px-2' : 'justify-between px-4'
+        }`}>
+          {!sidebarCollapsed && (
+            <Link to="/home" className="flex items-center overflow-hidden">
               <EventoraLogo size="sm" showTagline={false} />
-            )}
-          </Link>
+            </Link>
+          )}
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="p-2 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+            title={sidebarCollapsed ? 'Open sidebar' : 'Close sidebar'}
           >
-            {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+            <PanelLeft className="w-5 h-5" />
           </button>
         </div>
 
         {/* Primary CTA: Create Event */}
-        <div className="p-3 shrink-0">
+        <div className={`p-3 shrink-0 ${sidebarCollapsed ? 'flex justify-center px-2' : ''}`}>
           <Link
-            to="/app/events/new"
-            className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-sm shadow-md shadow-[#635BFF]/25 hover:shadow-lg transition-all ${
-              sidebarCollapsed ? 'px-0' : ''
+            to="/home/events/new"
+            className={`flex items-center justify-center gap-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-sm shadow-md shadow-[#635BFF]/25 hover:shadow-lg transition-all ${
+              sidebarCollapsed ? 'w-11 h-11 p-0' : 'py-2.5 px-3 w-full'
             }`}
             title="Create New Event"
           >
@@ -180,7 +145,9 @@ export default function AppLayout() {
         </div>
 
         {/* Navigation links */}
-        <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto min-h-0">
+        <nav className={`flex-1 space-y-1 overflow-y-auto min-h-0 ${
+          sidebarCollapsed ? 'px-2 py-2 flex flex-col items-center' : 'px-3 py-2'
+        }`}>
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = getIsNavItemActive(item);
@@ -192,17 +159,19 @@ export default function AppLayout() {
               <NavLink
                 key={item.name}
                 to={item.to}
-                state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
+                state={item.to === '/home/special-events' ? { fromSpecialEvents: true } : undefined}
                 onClick={() => {
-                  if (item.to === '/app/quiz') {
+                  if (item.to === '/home/quiz') {
                     try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
-                  } else if (item.to === '/app/admin/quizzes') {
+                  } else if (item.to === '/home/admin/quizzes') {
                     try { sessionStorage.setItem('eventora_admin_quiz_active', 'true'); } catch (_) {}
                   }
                 }}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ${
-                  isActive ? activeClass : inactiveClass
-                }`}
+                className={`flex items-center rounded-xl text-sm transition-all ${
+                  sidebarCollapsed
+                    ? 'w-11 h-11 justify-center'
+                    : 'gap-3 px-3 py-2.5 w-full'
+                } ${isActive ? activeClass : inactiveClass}`}
                 title={sidebarCollapsed ? item.name : undefined}
               >
                 <Icon
@@ -221,10 +190,19 @@ export default function AppLayout() {
         </nav>
 
         {/* Bottom User profile card */}
-        <div className="p-3 border-t border-gray-100 dark:border-gray-800 shrink-0">
-          <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-gray-50 dark:bg-[#191D2B]">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-[#635BFF]/10 text-[#635BFF] font-bold text-xs flex items-center justify-center shrink-0 border border-[#635BFF]/20">
+        <div className={`border-t border-gray-100 dark:border-gray-800 shrink-0 ${
+          sidebarCollapsed ? 'p-2 flex justify-center' : 'p-3'
+        }`}>
+          <div className={`flex items-center rounded-xl bg-gray-50 dark:bg-[#191D2B] ${
+            sidebarCollapsed
+              ? 'w-11 h-11 justify-center p-0'
+              : 'justify-between gap-2 p-2 w-full'
+          }`}>
+            <div className={`flex items-center min-w-0 ${sidebarCollapsed ? 'justify-center' : 'gap-2.5 flex-1'}`}>
+              <div
+                className="w-8 h-8 rounded-full bg-[#635BFF]/10 text-[#635BFF] font-bold text-xs flex items-center justify-center shrink-0 border border-[#635BFF]/20"
+                title={sidebarCollapsed ? `${displayName} (${user?.email || profile?.usage_type || 'User'})` : undefined}
+              >
                 {displayName.charAt(0).toUpperCase()}
               </div>
               {!sidebarCollapsed && (
@@ -258,7 +236,7 @@ export default function AppLayout() {
           MOBILE TOPBAR & DRAWER
          ========================================================================= */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-16 bg-white dark:bg-[#151823] border-b border-gray-200 dark:border-gray-800 px-4 flex items-center justify-between z-40">
-        <Link to="/app">
+        <Link to="/home">
           <EventoraLogo size="sm" />
         </Link>
         <div className="flex items-center gap-2">
@@ -276,7 +254,7 @@ export default function AppLayout() {
         <div className="md:hidden fixed inset-0 top-16 bg-white dark:bg-[#151823] z-30 p-6 flex flex-col justify-between overflow-y-auto">
           <div className="space-y-4">
             <Link
-              to="/app/events/new"
+              to="/home/events/new"
               onClick={() => setMobileMenuOpen(false)}
               className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#635BFF] text-white font-semibold text-sm shadow-md"
             >
@@ -297,11 +275,11 @@ export default function AppLayout() {
                   <NavLink
                     key={item.name}
                     to={item.to}
-                    state={item.to === '/app/special-events' ? { fromSpecialEvents: true } : undefined}
+                    state={item.to === '/home/special-events' ? { fromSpecialEvents: true } : undefined}
                     onClick={() => {
-                      if (item.to === '/app/quiz') {
+                      if (item.to === '/home/quiz') {
                         try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
-                      } else if (item.to === '/app/admin/quizzes') {
+                      } else if (item.to === '/home/admin/quizzes') {
                         try { sessionStorage.setItem('eventora_admin_quiz_active', 'true'); } catch (_) {}
                       }
                       setMobileMenuOpen(false);

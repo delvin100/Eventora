@@ -21,7 +21,6 @@ export default function GroupsWorkspacePage() {
   // Group config
   const [mode, setMode] = useState('count'); // 'count' or 'size'
   const [targetValue, setTargetValue] = useState(4);
-  const [namingTheme, setNamingTheme] = useState('standard');
   const [groups, setGroups] = useState([]);
 
   const [isGenerating, setIsGenerating] = useState(false);
@@ -49,9 +48,9 @@ export default function GroupsWorkspacePage() {
     setTimeout(() => {
       let result = [];
       if (mode === 'count') {
-        result = createGroupsByCount(participants, targetValue, namingTheme);
+        result = createGroupsByCount(participants, targetValue, 'standard');
       } else {
-        result = createGroupsBySize(participants, targetValue, namingTheme);
+        result = createGroupsBySize(participants, targetValue, 'standard');
       }
 
       setGroups(result);
@@ -136,7 +135,7 @@ export default function GroupsWorkspacePage() {
           </p>
           <div className="pt-2">
             <Link
-              to={`/app/events/${eventId}`}
+              to={`/home/events/${eventId}`}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25"
             >
               <Users className="w-4 h-4" />
@@ -157,8 +156,6 @@ export default function GroupsWorkspacePage() {
             onOpenPresentation={() => setIsPresentationOpen(true)}
             hasGroups={groups.length > 0}
             isGenerating={isGenerating}
-            namingTheme={namingTheme}
-            onNamingThemeChange={setNamingTheme}
           />
 
           {groups.length === 0 ? (

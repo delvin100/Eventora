@@ -215,32 +215,61 @@ export default function MiniWheelPreview() {
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
       ctx.stroke();
 
-      // Segment Typography (Clean, modern, crisp)
+      const midAngle = angle + arc / 2;
+
+      // Subtle inner rim dot (consistently positioned towards center hub)
       ctx.save();
-      const textRadius = wheelRadius * 0.62;
-      ctx.translate(
-        Math.cos(angle + arc / 2) * textRadius,
-        Math.sin(angle + arc / 2) * textRadius
+      ctx.beginPath();
+      const dotRadius = wheelRadius * 0.34;
+      ctx.arc(
+        Math.cos(midAngle) * dotRadius,
+        Math.sin(midAngle) * dotRadius,
+        2.2, 0, 2 * Math.PI
       );
-      ctx.rotate(angle + arc / 2 + Math.PI / 2);
+      ctx.fillStyle = theme.accent;
+      ctx.fill();
+      ctx.restore();
+
+      // Segment Typography (Clean, modern, crisp, always correctly visible & upright)
+      ctx.save();
+      const textRadius = wheelRadius * 0.64;
+      ctx.translate(
+        Math.cos(midAngle) * textRadius,
+        Math.sin(midAngle) * textRadius
+      );
+
+      // Base tangent angle (aligned along the slice's natural arc curve)
+      let tangentAngle = midAngle + Math.PI / 2;
+
+      // Determine world angle on screen (accounting for current wheel rotation)
+      // If the tangent direction faces leftward (into western hemisphere, PI/2 to 3*PI/2),
+      // text would be inverted/upside-down for the viewer. Flip by 180° so it's always upright & readable.
+      const screenAngle = ((rotation + tangentAngle) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      if (screenAngle > Math.PI / 2 && screenAngle < (3 * Math.PI) / 2) {
+        tangentAngle += Math.PI;
+      }
+
+      ctx.rotate(tangentAngle);
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      // Drop shadow for text legibility
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.7)';
+      // Drop shadow for maximum contrast and readability
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.85)';
       ctx.shadowBlur = 5;
       ctx.shadowOffsetY = 1.5;
       ctx.fillStyle = '#FFFFFF';
-      ctx.font = '600 12.5px "Inter", system-ui, -apple-system, sans-serif';
+
+      // Ensure text fits comfortably within wedge without touching segment dividers
+      let fontSize = 12.5;
+      ctx.font = `700 ${fontSize}px "Inter", system-ui, -apple-system, sans-serif`;
+      const textWidth = ctx.measureText(SAMPLE_NAMES[i]).width;
+      const maxAllowedWidth = arc * textRadius * 0.84;
+      if (textWidth > maxAllowedWidth) {
+        fontSize = Math.max(10, Math.floor(fontSize * (maxAllowedWidth / textWidth) * 10) / 10);
+        ctx.font = `700 ${fontSize}px "Inter", system-ui, -apple-system, sans-serif`;
+      }
+
       ctx.fillText(SAMPLE_NAMES[i], 0, 0);
-
-      // Subtle inner rim dot
-      ctx.shadowColor = 'transparent';
-      ctx.beginPath();
-      ctx.arc(0, -textRadius * 0.45, 1.8, 0, 2 * Math.PI);
-      ctx.fillStyle = theme.accent;
-      ctx.fill();
-
       ctx.restore();
     }
 

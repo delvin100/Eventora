@@ -15,14 +15,12 @@ import {
   CheckCircle2,
   AlertCircle,
   X,
-  Settings,
   Users
 } from 'lucide-react';
 import { specialEventService } from '../services/specialEventService';
 import { useAuth } from '../context/AuthContext';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import UserAllocationModal from '../components/specialEvents/UserAllocationModal';
-import SpecialEventUserAccessModal from '../components/specialEvents/SpecialEventUserAccessModal';
 import { formatDate } from '../utils/dateUtils';
 import { slugify } from '../utils/slugUtils';
 
@@ -47,9 +45,6 @@ export default function SpecialEventsPage() {
 
   // User Allocation Modal State
   const [allocationEvent, setAllocationEvent] = useState(null);
-
-  // User Access Settings Modal State (Admin only)
-  const [userAccessEvent, setUserAccessEvent] = useState(null);
 
   const loadSpecialEvents = async () => {
     try {
@@ -129,15 +124,13 @@ export default function SpecialEventsPage() {
             </p>
           </div>
 
-          {isAdmin && (
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] shrink-0 cursor-pointer"
-            >
-              <Plus className="w-5 h-5" />
-              <span>Add Special Event</span>
-            </button>
-          )}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-violet-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] shrink-0 cursor-pointer"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Add Special Event</span>
+          </button>
         </div>
       </div>
 
@@ -175,62 +168,45 @@ export default function SpecialEventsPage() {
             No Special Events Yet
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 leading-relaxed">
-            {isAdmin
-              ? 'Special events are customized events created only by admins. Once created, you can allocate users with specific access rights.'
-              : 'You do not have access to any special events yet. Contact the administrator to grant you access.'}
+            Create your own special event with custom rounds, participant assessments, and live evaluation tools.
           </p>
-          {isAdmin && (
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-md shadow-violet-600/25 transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Create First Special Event</span>
-            </button>
-          )}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-md shadow-violet-600/25 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Create First Special Event</span>
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredEvents.map((event) => (
             <Link
               key={event.id}
-              to={`/app/events/${slugify(event.name)}`}
+              to={`/home/events/${slugify(event.name)}`}
               state={{ fromSpecialEvents: true }}
               className="group relative flex flex-col justify-between bg-white dark:bg-[#151823] rounded-2xl border border-gray-200/90 dark:border-gray-800/90 p-5 hover:border-violet-500/60 dark:hover:border-violet-500/60 shadow-sm hover:shadow-xl hover:shadow-violet-500/5 transition-all duration-200"
             >
               <div>
-                {/* Card Top: Crown Tag + Admin Settings & Delete */}
+                {/* Card Top: Crown Tag + Delete */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-950/50 border border-violet-200/60 dark:border-violet-800/60 text-violet-700 dark:text-violet-300 text-[11px] font-bold uppercase tracking-wider">
                     <Crown className="w-3.5 h-3.5 text-amber-500" />
                     <span>Special Event</span>
                   </div>
 
-                  {isAdmin && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setUserAccessEvent(event);
-                        }}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 transition-colors"
-                        title="User Access Settings (Grant access to other users)"
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setEventToDelete(event);
-                        }}
-                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
-                        title="Delete Special Event"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                  {(isAdmin || event.owner_id === user?.id || !event.owner_id) && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setEventToDelete(event);
+                      }}
+                      className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 transition-colors"
+                      title="Delete Special Event"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   )}
                 </div>
 
@@ -239,9 +215,19 @@ export default function SpecialEventsPage() {
                   {event.name}
                 </h3>
 
+                {/* Creator / Owner info for Admin */}
+                {isAdmin && (
+                  <div className="mt-1 flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400">
+                    <Users className="w-3 h-3 text-violet-500 shrink-0" />
+                    <span className="truncate">
+                      By: <strong className="text-gray-700 dark:text-gray-300 font-semibold">{event.owner?.name || event.owner?.email || (event.owner_id === user?.id ? 'You' : 'User')}</strong>
+                    </span>
+                  </div>
+                )}
+
                 {/* Event Description */}
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2 min-h-[32px]">
-                  {event.description || 'Special event with allocated access.'}
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2 min-h-[32px]">
+                  {event.description || 'Personal special event with custom assessment.'}
                 </p>
 
                 {/* User Allocation Action Pill */}
@@ -394,14 +380,6 @@ export default function SpecialEventsPage() {
         onAllocationsUpdated={(eventId, count) => {
           setEvents(prev => prev.map(ev => ev.id === eventId ? { ...ev, allocatedUserCount: count } : ev));
         }}
-      />
-
-      {/* User Access Settings Modal (Admin) */}
-      <SpecialEventUserAccessModal
-        isOpen={Boolean(userAccessEvent)}
-        onClose={() => setUserAccessEvent(null)}
-        event={userAccessEvent}
-        onUpdated={loadSpecialEvents}
       />
     </div>
   );

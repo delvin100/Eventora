@@ -7,8 +7,6 @@ import {
   UserMinus,
   RefreshCw,
   Clock,
-  Award,
-  BookOpen,
   ChevronDown,
   ChevronRight,
   Check,
@@ -21,7 +19,6 @@ import {
   Send,
   Users
 } from 'lucide-react';
-import { TASK_PACKS } from '../../utils/taskBank';
 
 function SearchableParticipantDropdown({
   participants = [],
@@ -233,69 +230,6 @@ function SearchableParticipantDropdown({
   );
 }
 
-function StylishTaskPackDropdown({ value, onChange, packs }) {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
-
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const selected = packs.find(p => p.id === value) || packs[0];
-
-  return (
-    <div className="relative w-full" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2 rounded-xl border border-purple-200 dark:border-purple-800/80 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-800 dark:text-gray-200 hover:border-purple-300 dark:hover:border-purple-700 flex items-center justify-between gap-2 transition-all cursor-pointer shadow-xs focus:outline-none focus:ring-2 focus:ring-purple-500/25"
-      >
-        <span className="truncate text-left">
-          {selected?.name} <span className="text-[11px] font-normal text-purple-600 dark:text-purple-400">({selected?.tasks?.length} tasks)</span>
-        </span>
-        <ChevronDown className={`w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 right-0 mt-1.5 rounded-xl bg-white dark:bg-[#181B26] border border-purple-200 dark:border-purple-800 shadow-xl py-1 z-40 animate-in fade-in zoom-in-95 duration-100">
-          {packs.map((pack) => {
-            const isMatch = pack.id === value;
-            return (
-              <button
-                key={pack.id}
-                type="button"
-                onClick={() => {
-                  onChange(pack.id);
-                  setIsOpen(false);
-                }}
-                className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between transition-colors cursor-pointer ${
-                  isMatch
-                    ? 'bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 font-semibold'
-                    : 'text-gray-700 dark:text-gray-300 hover:bg-purple-50/50 dark:hover:bg-purple-950/30 hover:text-purple-900 dark:hover:text-purple-200'
-                }`}
-              >
-                <div className="flex flex-col">
-                  <span>{pack.name}</span>
-                  <span className="text-[10px] text-gray-400 dark:text-gray-500 font-normal">
-                    {pack.tasks.length} tasks
-                  </span>
-                </div>
-                {isMatch && <Check className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0 ml-2" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function WheelControls({
   isSpinning,
   onSpin,
@@ -310,10 +244,6 @@ export default function WheelControls({
   onResetParticipants,
   removedCount = 0,
   eligibleCount = 0,
-  assignTaskMode = false,
-  onToggleAssignTaskMode,
-  selectedTaskPack = 'catechism_faith',
-  onSelectTaskPack,
   isSpecialEvent = false,
   eligibleParticipants = [],
   onManualSendToEvaluation = null,
@@ -367,8 +297,6 @@ export default function WheelControls({
             ? 'Spinning...'
             : eligibleCount === 1
             ? 'Select Final Participant'
-            : assignTaskMode
-            ? 'Spin for Student & Task 🎯'
             : 'Spin The Wheel'}
         </span>
       </button>
@@ -449,44 +377,6 @@ export default function WheelControls({
 
       {/* Settings Grid */}
       <div className="space-y-3">
-        {/* Student Task / Challenge Assignment Mode Toggle (Hidden for Special Events) */}
-        {!isSpecialEvent && (
-          <div className="p-3.5 rounded-xl bg-gradient-to-r from-purple-50/70 to-indigo-50/70 dark:from-purple-950/20 dark:to-indigo-950/20 border border-purple-200/60 dark:border-purple-900/60 space-y-2.5">
-            <label className="flex items-center justify-between cursor-pointer">
-              <div className="flex items-center gap-2.5">
-                <Award className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <div>
-                  <p className="text-xs font-bold text-gray-900 dark:text-white">
-                    Student Task & Mission Mode
-                  </p>
-                  <p className="text-[10px] text-gray-500 dark:text-gray-400">
-                    Assigns an uplifting task or question to the selected student
-                  </p>
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={assignTaskMode}
-                onChange={(e) => onToggleAssignTaskMode && onToggleAssignTaskMode(e.target.checked)}
-                className="w-4 h-4 text-purple-600 rounded cursor-pointer"
-              />
-            </label>
-
-            {assignTaskMode && (
-              <div className="pt-2 border-t border-purple-200/50 dark:border-purple-900/40 space-y-1.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700 dark:text-purple-300">
-                  Activity / Mission Bank:
-                </span>
-                <StylishTaskPackDropdown
-                  value={selectedTaskPack}
-                  onChange={onSelectTaskPack}
-                  packs={TASK_PACKS}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Remove Winner Toggle */}
         <label className="flex items-center justify-between p-3 rounded-xl bg-gray-50/70 dark:bg-[#141722] border border-gray-200/60 dark:border-gray-800 cursor-pointer">
           <div className="flex items-center gap-2.5">

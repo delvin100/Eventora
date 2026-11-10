@@ -33,7 +33,6 @@ import PrathibhaLoginPage from './pages/ps/PrathibhaLoginPage';
 import EventParticipantsPage from './pages/EventParticipantsPage';
 
 import WheelWorkspacePage from './pages/WheelWorkspacePage';
-import TasksWorkspacePage from './pages/TasksWorkspacePage';
 import ShuffleWorkspacePage from './pages/ShuffleWorkspacePage';
 import GroupsWorkspacePage from './pages/GroupsWorkspacePage';
 import SpecialEventSettingsPage from './pages/SpecialEventSettingsPage';
@@ -62,9 +61,13 @@ export default function App() {
             <Route path="/ps" element={<PrathibhaSangamamIndex />} />
             <Route path="/ps/login" element={<PrathibhaLoginPage />} />
 
+            {/* Redirect legacy /app URLs to /home */}
+            <Route path="/app/*" element={<Navigate to="/home" replace />} />
+            <Route path="/app" element={<Navigate to="/home" replace />} />
+
             {/* Authenticated Application Shell */}
             <Route
-              path="/app"
+              path="/home"
               element={
                 <ProtectedRoute>
                   <AppLayout />
@@ -85,7 +88,6 @@ export default function App() {
               <Route path="events/:eventId" element={<EventWorkspace />}>
                 <Route index element={<EventParticipantsPage />} />
                 <Route path="wheel" element={<WheelWorkspacePage />} />
-                <Route path="tasks" element={<TasksWorkspacePage />} />
                 <Route path="shuffle" element={<ShuffleWorkspacePage />} />
                 <Route path="groups" element={<GroupsWorkspacePage />} />
                 <Route path="results" element={<ResultsHistoryPage />} />

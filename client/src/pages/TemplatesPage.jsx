@@ -133,7 +133,7 @@ export default function TemplatesPage() {
       }));
       await participantService.bulkAddParticipants(createdEvent.id, participants);
 
-      navigate(`/app/events/${createdEvent.id}`);
+      navigate(`/home/events/${createdEvent.id}`);
     } catch (e) {
       console.error('Failed to preseed template in Supabase:', e);
       setErrorMsg('Error creating event from template. Please check your connection and login status.');

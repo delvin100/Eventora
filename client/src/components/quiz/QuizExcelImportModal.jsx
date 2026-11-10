@@ -259,7 +259,7 @@ export default function QuizExcelImportModal({
                 {isRoundDropdownOpen && (
                   <div className="absolute right-0 top-full mt-1.5 w-44 max-h-56 overflow-y-auto rounded-2xl bg-white dark:bg-[#181B26] border border-gray-200 dark:border-gray-800 shadow-2xl p-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 divide-y divide-gray-100/50 dark:divide-gray-800/50">
                     {Array.from(
-                      { length: Math.max(currentRoundsCount, selectedRound, 5) },
+                      { length: Math.max(currentRoundsCount, selectedRound, 1) },
                       (_, i) => i + 1
                     ).map((rNum) => {
                       const isSelected = rNum === Number(selectedRound);

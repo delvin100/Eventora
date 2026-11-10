@@ -852,8 +852,8 @@ router.delete('/users/:userId', async (req, res, next) => {
 
 /**
  * GET /api/v1/ps/special-events
- * Fetch special events for the current user
- * Admin sees all; granted users see events they have access to.
+ * Fetch special events for the current user.
+ * Admin sees all events (with creator info); normal users see only their own personal events.
  */
 router.get('/special-events', async (req, res, next) => {
   try {
@@ -865,23 +865,15 @@ router.get('/special-events', async (req, res, next) => {
     const userEmail = (email || '').toLowerCase().trim();
     const isAdmin = userEmail === 'admin@gmail.com';
 
-    // 1. Fetch access records and alloc records
-    const [{ data: allocData }, { data: accessData }] = await Promise.all([
-      supabase.from('results').select('event_id, result_snapshot').eq('operation_type', 'special_event_allocations'),
-      supabase.from('results').select('event_id, result_snapshot').eq('operation_type', 'special_event_user_access')
-    ]);
+    // 1. Fetch alloc records for evaluator counts
+    const { data: allocData } = await supabase
+      .from('results')
+      .select('event_id, result_snapshot')
+      .eq('operation_type', 'special_event_allocations');
 
     const allocCountMap = {};
     (allocData || []).forEach(r => {
       allocCountMap[r.event_id] = Array.isArray(r.result_snapshot) ? r.result_snapshot.length : 0;
-    });
-
-    const accessCountMap = {};
-    const accessRecordsMap = {};
-    (accessData || []).forEach(r => {
-      const list = Array.isArray(r.result_snapshot) ? r.result_snapshot : [];
-      accessCountMap[r.event_id] = list.length;
-      accessRecordsMap[r.event_id] = list;
     });
 
     if (isAdmin) {
@@ -893,35 +885,50 @@ router.get('/special-events', async (req, res, next) => {
 
       if (error) throw error;
 
-      const events = (eventsData || []).map(ev => ({
-        ...ev,
-        participantCount: ev.participants ? ev.participants.length : 0,
-        allocatedUserCount: allocCountMap[ev.id] || 0,
-        grantedUserCount: accessCountMap[ev.id] || 0
-      }));
+      // Fetch profiles and auth users to display creator information for admin
+      const { data: profiles } = await supabase.from('profiles').select('*');
+      const profileMap = new Map();
+      (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+      const authUserMap = new Map();
+      try {
+        const { data: authData } = await supabase.auth.admin.listUsers();
+        if (authData?.users) {
+          authData.users.forEach(u => authUserMap.set(u.id, u));
+        }
+      } catch (_) {}
+
+      const events = (eventsData || []).map(ev => {
+        const authUser = authUserMap.get(ev.owner_id);
+        const profile = profileMap.get(ev.owner_id);
+        const ownerEmail = authUser?.email || (profile?.display_name?.includes('@') ? profile.display_name : null);
+        const ownerName = profile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User';
+
+        return {
+          ...ev,
+          participantCount: ev.participants ? ev.participants.length : 0,
+          allocatedUserCount: allocCountMap[ev.id] || 0,
+          owner: {
+            id: ev.owner_id,
+            name: ownerName,
+            email: ownerEmail
+          }
+        };
+      });
 
       return res.json({ success: true, events });
     }
 
-    // Normal user: find allowed event IDs
-    const allowedEventIds = [];
-    Object.entries(accessRecordsMap).forEach(([eventId, userList]) => {
-      const isGranted = userList.some(u =>
-        (userId && (u.id === userId || u.userId === userId)) ||
-        (userEmail && u.email && u.email.toLowerCase() === userEmail)
-      );
-      if (isGranted) allowedEventIds.push(eventId);
-    });
-
-    if (allowedEventIds.length === 0) {
+    // Normal user: fetch ONLY their own personal special events
+    if (!userId) {
       return res.json({ success: true, events: [] });
     }
 
     const { data: eventsData, error } = await supabase
       .from('events')
       .select('*, participants(id)')
-      .in('id', allowedEventIds)
       .eq('category', 'Special Event')
+      .eq('owner_id', userId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -929,8 +936,7 @@ router.get('/special-events', async (req, res, next) => {
     const events = (eventsData || []).map(ev => ({
       ...ev,
       participantCount: ev.participants ? ev.participants.length : 0,
-      allocatedUserCount: allocCountMap[ev.id] || 0,
-      grantedUserCount: 0
+      allocatedUserCount: allocCountMap[ev.id] || 0
     }));
 
     return res.json({ success: true, events });
@@ -1297,6 +1303,123 @@ router.delete('/admin/quizzes/:quizId', async (req, res, next) => {
 
     if (error) throw error;
     return res.json({ success: true, message: 'Quiz deleted successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/v1/ps/admin/all-lists
+ * Fetch all saved lists from all users with creator info (Admin Only)
+ */
+router.get('/admin/all-lists', async (req, res, next) => {
+  try {
+    if (!supabase) {
+      return res.json({ success: true, lists: [] });
+    }
+
+    const { email } = req.query;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const isAdmin = requesterEmail === 'admin@gmail.com';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    // 1. Fetch all saved_lists with saved_list_entries
+    const { data: lists, error: listsErr } = await supabase
+      .from('saved_lists')
+      .select('*, saved_list_entries(*)')
+      .order('created_at', { ascending: false });
+
+    if (listsErr) throw listsErr;
+
+    // 2. Fetch all profiles
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('*');
+
+    const profileMap = new Map();
+    (profiles || []).forEach(p => profileMap.set(p.id, p));
+
+    // 3. Fetch auth users if available
+    const authUserMap = new Map();
+    try {
+      const { data: authData } = await supabase.auth.admin.listUsers();
+      if (authData?.users) {
+        authData.users.forEach(u => authUserMap.set(u.id, u));
+      }
+    } catch (_) {}
+
+    // 4. Combine each list with owner info & formatted entries
+    const formattedLists = (lists || []).map(l => {
+      const authUser = authUserMap.get(l.owner_id);
+      const profile = profileMap.get(l.owner_id);
+      const ownerEmail = authUser?.email || (profile?.display_name?.includes('@') ? profile.display_name : null) || 'user@eventora.app';
+      const displayName = profile?.display_name || authUser?.user_metadata?.display_name || authUser?.email?.split('@')[0] || 'User';
+
+      return {
+        ...l,
+        entries: l.saved_list_entries || [],
+        count: l.saved_list_entries ? l.saved_list_entries.length : 0,
+        owner: {
+          id: l.owner_id,
+          displayName,
+          email: ownerEmail,
+          usageType: profile?.usage_type || authUser?.user_metadata?.usage_type || 'personal'
+        }
+      };
+    });
+
+    return res.json({ success: true, lists: formattedLists });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/v1/ps/admin/lists/:listId
+ * Delete any saved list by ID (Admin Only)
+ */
+router.delete('/admin/lists/:listId', async (req, res, next) => {
+  try {
+    const { listId } = req.params;
+    if (!supabase || !listId) {
+      return res.status(400).json({ success: false, message: 'List ID is required' });
+    }
+
+    const { email } = req.query;
+    let requesterEmail = (email || '').toLowerCase().trim();
+
+    if (!requesterEmail && req.headers.authorization) {
+      const token = req.headers.authorization.replace('Bearer ', '');
+      try {
+        const { data: { user } } = await supabase.auth.getUser(token);
+        if (user?.email) requesterEmail = user.email.toLowerCase().trim();
+      } catch (_) {}
+    }
+
+    const isAdmin = requesterEmail === 'admin@gmail.com';
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, message: 'Admin access required.' });
+    }
+
+    // First delete list entries
+    await supabase.from('saved_list_entries').delete().eq('list_id', listId);
+
+    // Then delete list
+    const { error } = await supabase.from('saved_lists').delete().eq('id', listId);
+    if (error) throw error;
+
+    return res.json({ success: true, message: 'List deleted successfully.' });
   } catch (err) {
     next(err);
   }

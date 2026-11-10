@@ -117,7 +117,7 @@ export default function ShuffleWorkspacePage() {
           </p>
           <div className="pt-2">
             <Link
-              to={`/app/events/${eventId}`}
+              to={`/home/events/${eventId}`}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold shadow-md shadow-[#635BFF]/25"
             >
               <Users className="w-4 h-4" />

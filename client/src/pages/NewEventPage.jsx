@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { ArrowLeft, AlertCircle } from 'lucide-react';
+import { CalendarDays, X, AlertCircle } from 'lucide-react';
 import { eventService } from '../services/eventService';
 import { slugify } from '../utils/slugUtils';
 
@@ -8,13 +8,8 @@ export default function NewEventPage() {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('Classroom');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-
-  const categories = [
-    'Catechism & Faith', 'Classroom', 'Student Tasks & Challenges', 'Team activity', 'Lucky draw', 'Tournament', 'Workshop', 'Personal', 'General'
-  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -26,11 +21,10 @@ export default function NewEventPage() {
       const createdEvent = await eventService.createEvent({
         name: name.trim(),
         description: description.trim(),
-        category,
         accent_color: '#635BFF'
       });
 
-      navigate(`/app/events/${slugify(createdEvent.name)}`);
+      navigate(`/home/events/${slugify(createdEvent.name)}`);
     } catch (err) {
       console.error('Failed to create event:', err);
       setErrorMsg(err.message || 'Failed to create event.');
@@ -40,34 +34,41 @@ export default function NewEventPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <Link
-        to="/app/events"
-        className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-900 dark:hover:text-white"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        <span>Back to Events</span>
-      </Link>
+    <div className="flex items-center justify-center min-h-[calc(100vh-10rem)] py-6 px-4">
+      <div className="relative w-full max-w-lg rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-violet-100 dark:bg-violet-950/60 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Create New Event</h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Define event name and details</p>
+            </div>
+          </div>
 
-      <div className="bg-white dark:bg-[#161925] p-6 sm:p-8 rounded-3xl border border-gray-200/80 dark:border-gray-800 shadow-sm space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Create New Event</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Configure your new event workspace to manage participants and activities.
-          </p>
+          <Link
+            to="/home/events"
+            className="p-1.5 rounded-xl text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors cursor-pointer"
+            title="Close"
+          >
+            <X className="w-5 h-5" />
+          </Link>
         </div>
 
         {errorMsg && (
-          <div className="p-3.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-700 dark:text-red-300 text-xs flex items-center gap-2">
+          <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-xs font-semibold text-rose-700 dark:text-rose-300 flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Event Name
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Event Name */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+              Event Name <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
@@ -76,58 +77,38 @@ export default function NewEventPage() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Science Class 10B or Friday Team Raffle"
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-1.5">
-              Description (Optional)
+          {/* Description (Optional) */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider block">
+              Description <span className="text-gray-400 font-normal normal-case">(Optional)</span>
             </label>
             <textarea
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add details about the goal, participants, or rules..."
-              className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141D] text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 resize-none"
+              placeholder="Briefly describe what this event is about..."
+              className="w-full px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400 resize-none"
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-700 dark:text-gray-300 mb-2">
-              Category
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategory(cat)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                    category === cat
-                      ? 'bg-[#635BFF] text-white'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-end gap-3">
+          {/* Submit Buttons */}
+          <div className="pt-3 flex items-center justify-end gap-2.5">
             <Link
-              to="/app/events"
-              className="px-4 py-2.5 rounded-xl text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/80 transition-colors cursor-pointer"
+              to="/home/events"
+              className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
             >
               Cancel
             </Link>
             <button
               type="submit"
-              disabled={loading}
-              className="px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-xs shadow-md shadow-[#635BFF]/25 transition-all cursor-pointer disabled:opacity-50"
+              disabled={loading || !name.trim()}
+              className="px-5 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
             >
-              {loading ? 'Creating...' : 'Create Event'}
+              <span>{loading ? 'Creating...' : 'Create'}</span>
             </button>
           </div>
         </form>
