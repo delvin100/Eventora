@@ -15,7 +15,8 @@ import {
   Image as ImageIcon,
   CheckCircle2,
   RotateCcw,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Radio
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { quizService } from '../services/quizService';
@@ -23,6 +24,7 @@ import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import QuizSettingsModal from '../components/quiz/QuizSettingsModal';
 import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
+import LiveArenaComingSoonModal from '../components/common/LiveArenaComingSoonModal';
 
 export default function QuizHubPage() {
   const { user } = useAuth();
@@ -38,6 +40,7 @@ export default function QuizHubPage() {
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [isLiveArenaComingSoonOpen, setIsLiveArenaComingSoonOpen] = useState(false);
 
   const fetchQuiz = async () => {
     try {
@@ -287,12 +290,12 @@ export default function QuizHubPage() {
         </div>
       </div>
 
-      {/* 3 Main Action Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Setup Steps (Steps 1 & 2) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Card 1: Questions */}
         <div
           onClick={() => navigate(`/home/quiz/${quizSlug}/questions`, { state: { quizId: quiz.id, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
-          className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-violet-500/80 dark:hover:border-violet-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-1 transition-all cursor-pointer"
+          className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-violet-500/80 dark:hover:border-violet-500/80 p-6 sm:p-8 shadow-sm hover:shadow-xl hover:shadow-violet-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -314,7 +317,7 @@ export default function QuizHubPage() {
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between">
+          <div className="mt-6 pt-4 border-t border-gray-100 dark:border-gray-800/80 flex items-center justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
               <span className="text-xs font-semibold text-gray-400">
                 {totalQuestions} questions
@@ -325,14 +328,14 @@ export default function QuizHubPage() {
                   e.stopPropagation();
                   setIsExcelImportOpen(true);
                 }}
-                className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline flex items-center gap-1.5 cursor-pointer"
                 title="Import questions from Excel"
               >
-                <FileSpreadsheet className="w-3 h-3" />
+                <FileSpreadsheet className="w-3.5 h-3.5" />
                 <span>Import Excel</span>
               </button>
             </div>
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#635BFF] group-hover:translate-x-0.5 transition-transform">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-[#635BFF] group-hover:translate-x-0.5 transition-transform shrink-0">
               <span>Setup Questions</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </span>
@@ -342,7 +345,7 @@ export default function QuizHubPage() {
         {/* Card 2: Participants */}
         <div
           onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, tab: 'participants', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
-          className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-sky-500/80 dark:hover:border-sky-500/80 p-6 sm:p-7 shadow-sm hover:shadow-xl hover:shadow-sky-500/10 hover:-translate-y-1 transition-all cursor-pointer"
+          className="group relative flex flex-col justify-between rounded-3xl bg-white dark:bg-[#161925] border border-gray-200/80 dark:border-gray-800 hover:border-sky-500/80 dark:hover:border-sky-500/80 p-6 sm:p-8 shadow-sm hover:shadow-xl hover:shadow-sky-500/10 hover:-translate-y-1 transition-all cursor-pointer"
         >
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -368,46 +371,99 @@ export default function QuizHubPage() {
             <span className="text-xs font-semibold text-gray-400">
               {participantsCount} participants
             </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 dark:text-sky-400 group-hover:translate-x-0.5 transition-transform">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 dark:text-sky-400 group-hover:translate-x-0.5 transition-transform shrink-0">
               <span>View Participants</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </span>
           </div>
         </div>
+      </div>
 
-        {/* Card 3: Start Quiz */}
-        <div
-          onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
-          className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#635BFF] to-[#4F46E5] text-white p-6 sm:p-7 shadow-lg shadow-[#635BFF]/25 hover:shadow-2xl hover:shadow-[#635BFF]/35 hover:-translate-y-1 transition-all cursor-pointer ring-1 ring-white/20"
-        >
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="w-12 h-12 rounded-2xl bg-white/20 text-white flex items-center justify-center font-bold shadow-xs backdrop-blur-xs">
-                <Play className="w-6 h-6 fill-white" />
+      {/* Step 3: Launch & Play Arena Modes */}
+      <div className="space-y-4 pt-2">
+        <div>
+          <h2 className="text-base font-black text-gray-900 dark:text-white flex items-center gap-2">
+            <span>Launch & Play Quiz</span>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 uppercase tracking-wider">
+              Step 3
+            </span>
+          </h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            Choose how to host your quiz — on stage with the spin wheel, or live on participants' devices.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Mode A: Stage & Wheel Presenter */}
+          <div
+            onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+            className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#635BFF] via-[#5145E5] to-[#4338CA] text-white p-6 sm:p-8 shadow-xl shadow-[#635BFF]/20 hover:shadow-2xl hover:shadow-[#635BFF]/35 hover:-translate-y-1 transition-all cursor-pointer ring-1 ring-white/20"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-white/20 text-white flex items-center justify-center font-bold shadow-xs backdrop-blur-xs">
+                  <Play className="w-6 h-6 fill-white" />
+                </div>
+                <span className="text-[11px] font-black px-3 py-1 rounded-full bg-white/20 text-white uppercase tracking-wider backdrop-blur-xs">
+                  Stage Wheel Mode
+                </span>
               </div>
-              <span className="text-[11px] font-black px-2.5 py-0.5 rounded-full bg-white/20 text-white uppercase tracking-wider backdrop-blur-xs">
-                Step 3 • Live
-              </span>
+
+              <div>
+                <h3 className="text-xl font-black text-white">
+                  Spin Wheel & Stage Presenter
+                </h3>
+                <p className="text-xs text-white/80 mt-2 leading-relaxed">
+                  Projector-ready view with the spinning wheel to pick participants, on-stage question turns, and big-screen animations.
+                </p>
+              </div>
             </div>
 
-            <div>
-              <h3 className="text-xl font-black text-white">
-                Start Quiz
-              </h3>
-              <p className="text-xs text-white/80 mt-2 leading-relaxed">
-                Launch the live quiz presentation! Shows the quiz intro, round intro, and opens the wheel for turns and scoring.
-              </p>
+            <div className="mt-6 pt-4 border-t border-white/20 flex items-center justify-between">
+              <span className="text-xs font-semibold text-white/80">
+                Round {quiz.currentRound || 1} ready
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-white group-hover:translate-x-0.5 transition-transform">
+                <span>Launch Stage Wheel</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </span>
             </div>
           </div>
 
-          <div className="mt-6 pt-4 border-t border-white/20 flex items-center justify-between">
-            <span className="text-xs font-semibold text-white/80">
-              Round {quiz.currentRound || 1} ready
-            </span>
-            <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-white group-hover:translate-x-0.5 transition-transform">
-              <span>Launch Quiz</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </span>
+          {/* Mode B: Live Audience Device Arena */}
+          <div
+            onClick={() => setIsLiveArenaComingSoonOpen(true)}
+            className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#1E1B4B] via-[#2A1B6B] to-[#1E1B4B] text-white p-6 sm:p-8 shadow-xl shadow-indigo-950/40 hover:shadow-2xl hover:shadow-violet-900/40 hover:-translate-y-1 transition-all cursor-pointer border-2 border-violet-500/40 hover:border-violet-400"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-violet-600 text-white flex items-center justify-center font-bold shadow-md shadow-violet-500/40">
+                  <Radio className="w-6 h-6 text-white" />
+                </div>
+                <span className="text-[11px] font-black px-3 py-1 rounded-full bg-violet-500/30 text-violet-200 border border-violet-400/40 uppercase tracking-wider">
+                  Participation
+                </span>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-black text-white">
+                  Live Device Arena
+                </h3>
+                <p className="text-xs text-violet-200/80 mt-2 leading-relaxed">
+                  Audience participates live on their own devices using a 6-digit PIN. Displays questions on screen, tracks live answers, and reveals scores!
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
+              <span className="text-xs font-semibold text-violet-300">
+                PIN & QR Join Ready
+              </span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-black uppercase tracking-wider text-violet-300 group-hover:translate-x-0.5 transition-transform">
+                <span>Host Live Arena</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -439,6 +495,12 @@ export default function QuizHubPage() {
         onConfirm={handleResetProgress}
         onCancel={() => setIsResetDialogOpen(false)}
         onClose={() => setIsResetDialogOpen(false)}
+      />
+
+      {/* Live Device Arena In Development Coming Soon Modal */}
+      <LiveArenaComingSoonModal
+        isOpen={isLiveArenaComingSoonOpen}
+        onClose={() => setIsLiveArenaComingSoonOpen(false)}
       />
     </div>
   );

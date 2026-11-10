@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import SpecialEventsComingSoonModal from '../components/common/SpecialEventsComingSoonModal';
 import {
   Crown,
   Plus,
@@ -25,9 +26,11 @@ import { formatDate } from '../utils/dateUtils';
 import { slugify } from '../utils/slugUtils';
 
 export default function SpecialEventsPage() {
+  const navigate = useNavigate();
   const { user, loading: authLoading } = useAuth();
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
 
+  const [comingSoonOpen, setComingSoonOpen] = useState(true);
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -379,6 +382,15 @@ export default function SpecialEventsPage() {
         event={allocationEvent}
         onAllocationsUpdated={(eventId, count) => {
           setEvents(prev => prev.map(ev => ev.id === eventId ? { ...ev, allocatedUserCount: count } : ev));
+        }}
+      />
+
+      {/* Coming Soon Modal */}
+      <SpecialEventsComingSoonModal
+        isOpen={comingSoonOpen}
+        onClose={() => {
+          setComingSoonOpen(false);
+          navigate(-1);
         }}
       />
     </div>

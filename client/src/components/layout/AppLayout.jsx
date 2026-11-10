@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import EventoraLogo from '../EventoraLogo';
 import { useAuth } from '../../context/AuthContext';
+import SpecialEventsComingSoonModal from '../common/SpecialEventsComingSoonModal';
 
 export default function AppLayout() {
   const { user, profile, signOut, loading: authLoading } = useAuth();
@@ -25,6 +26,7 @@ export default function AppLayout() {
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSpecialEventsModalOpen, setIsSpecialEventsModalOpen] = useState(false);
 
   // Check if current user is admin
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
@@ -160,7 +162,12 @@ export default function AppLayout() {
                 key={item.name}
                 to={item.to}
                 state={item.to === '/home/special-events' ? { fromSpecialEvents: true } : undefined}
-                onClick={() => {
+                onClick={(e) => {
+                  if (item.name === 'Special Events') {
+                    e.preventDefault();
+                    setIsSpecialEventsModalOpen(true);
+                    return;
+                  }
                   if (item.to === '/home/quiz') {
                     try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
                   } else if (item.to === '/home/admin/quizzes') {
@@ -276,7 +283,13 @@ export default function AppLayout() {
                     key={item.name}
                     to={item.to}
                     state={item.to === '/home/special-events' ? { fromSpecialEvents: true } : undefined}
-                    onClick={() => {
+                    onClick={(e) => {
+                      if (item.name === 'Special Events') {
+                        e.preventDefault();
+                        setMobileMenuOpen(false);
+                        setIsSpecialEventsModalOpen(true);
+                        return;
+                      }
                       if (item.to === '/home/quiz') {
                         try { sessionStorage.removeItem('eventora_admin_quiz_active'); } catch (_) {}
                       } else if (item.to === '/home/admin/quizzes') {
@@ -322,6 +335,11 @@ export default function AppLayout() {
           <Outlet />
         </div>
       </main>
+      {/* Special Events Coming Soon Modal with full background blur */}
+      <SpecialEventsComingSoonModal
+        isOpen={isSpecialEventsModalOpen}
+        onClose={() => setIsSpecialEventsModalOpen(false)}
+      />
     </div>
   );
 }

@@ -24,6 +24,8 @@ import QuizDashboardPage from './pages/QuizDashboardPage';
 import QuizHubPage from './pages/QuizHubPage';
 import QuizWorkspacePage from './pages/QuizWorkspacePage';
 import QuizPlayPage from './pages/QuizPlayPage';
+import QuizLiveHostPage from './pages/QuizLiveHostPage';
+import QuizParticipantPage from './pages/QuizParticipantPage';
 import SettingsPage from './pages/SettingsPage';
 
 // Prathibha Sangamam Special Event Portal
@@ -61,6 +63,10 @@ export default function App() {
             <Route path="/ps" element={<PrathibhaSangamamIndex />} />
             <Route path="/ps/login" element={<PrathibhaLoginPage />} />
 
+            {/* Public Live Quiz Participant Portal */}
+            <Route path="/quiz/join" element={<QuizParticipantPage />} />
+            <Route path="/quiz/live/:pin" element={<QuizParticipantPage />} />
+
             {/* Redirect legacy /app URLs to /home */}
             <Route path="/app/*" element={<Navigate to="/home" replace />} />
             <Route path="/app" element={<Navigate to="/home" replace />} />
@@ -83,6 +89,7 @@ export default function App() {
               <Route path="quiz/:quizId/setup" element={<QuizWorkspacePage />} />
               <Route path="quiz/:quizId/play" element={<QuizPlayPage />} />
               <Route path="quiz/:quizId/wheel" element={<QuizPlayPage />} />
+              <Route path="quiz/:quizId/live" element={<QuizLiveHostPage />} />
               
               {/* Event Workspace with tabs */}
               <Route path="events/:eventId" element={<EventWorkspace />}>
