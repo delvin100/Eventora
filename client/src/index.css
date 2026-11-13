@@ -83,6 +83,29 @@
   animation: pin-pop 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
+@keyframes float-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.6);
+  }
+  20% {
+    opacity: 1;
+    transform: translateY(-20px) scale(1.15);
+  }
+  80% {
+    opacity: 1;
+    transform: translateY(-160px) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-220px) scale(0.9);
+  }
+}
+
+.animate-float-fade {
+  animation: float-fade 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+
 /* Remove default number input spin arrows */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

@@ -277,6 +277,34 @@ class QuizRealtimeService {
       localStorage.removeItem(`${SESSION_CACHE_KEY}_${pin}`);
     } catch (_) {}
   }
+
+  /**
+   * Submit rapid fire answer or pass
+   */
+  submitRapidAnswer(payload) {
+    this.broadcast('RAPID_SUBMIT', payload);
+  }
+
+  /**
+   * Send floating emoji reaction from spectator
+   */
+  sendEmojiReaction(payload) {
+    this.broadcast('EMOJI_REACTION', payload);
+  }
+}
+
+/**
+ * Calculate total score for each rapid turn
+ * Total = (correctCount * marks) - (wrongCount * penaltyMarks) - (passedCount * unansweredPenalty)
+ */
+export function calculateRapidTurnScore({ correct = 0, wrong = 0, passed = 0, marks = 10, penaltyMarks = 2, unansweredPenalty = 0 } = {}) {
+  const c = Math.max(0, Number(correct) || 0);
+  const w = Math.max(0, Number(wrong) || 0);
+  const p = Math.max(0, Number(passed) || 0);
+  const m = Number(marks) || 0;
+  const pen = Number(penaltyMarks) || 0;
+  const unans = Number(unansweredPenalty) || 0;
+  return Math.round((c * m) - (w * pen) - (p * unans));
 }
 
 export const quizRealtimeService = new QuizRealtimeService();

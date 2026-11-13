@@ -21,6 +21,7 @@ import {
   FileCheck,
   Clock,
   Play,
+  Zap,
   Image as ImageIcon,
   Music,
   Video as VideoIcon,
@@ -37,22 +38,30 @@ import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
 function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks = 1, mediaFormat = 'mcq', penalty = 0, secondPenalty = 0, unansPenalty = 0) {
-  const isDirect = quizType === 'answer_to_question' || (quizType === 'media_based' && mediaFormat === 'direct');
+  const isRapid = quizType === 'rapid_fire';
+  const isDirect = quizType === 'answer_to_question' || (quizType === 'media_based' && mediaFormat === 'direct') || (isRapid && mediaFormat === 'direct');
   const isTwoChances = quizType === 'one_question_two_chances';
-  const isMedia = quizType === 'media_based';
+  const initialMarks = isRapid ? (Number(defaultMarks) || 10) : (Number(defaultMarks) || 1);
+  const initialPenalty = isRapid ? (Number(penalty) || 2) : (Number(penalty) || 0);
+  const initialUnansPenalty = Number(unansPenalty) || 0;
+  const initialFormat = isDirect ? 'direct' : 'mcq';
   return {
     id: 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
     text: '',
-    format: isDirect ? 'direct' : 'mcq',
+    question: '',
+    format: initialFormat,
+    questionType: initialFormat,
     mediaType: 'image',
     mediaUrl: '',
     answer: isDirect ? '' : undefined,
+    correct_answer: isDirect ? '' : undefined,
     acceptableAnswers: isDirect ? [] : undefined,
-    marks: Number(defaultMarks) || 1,
+    alternativeAnswers: isDirect ? [] : undefined,
+    marks: initialMarks,
     secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
-    penaltyMarks: Number(penalty) || 0,
+    penaltyMarks: initialPenalty,
     secondTryPenaltyMarks: isTwoChances ? (Number(secondPenalty) || 0) : undefined,
-    unansweredPenaltyMarks: Number(unansPenalty) || 0,
+    unansweredPenaltyMarks: initialUnansPenalty,
     timeLimit: null,
     timeValue: '',
     timeUnit: 'sec',
@@ -61,7 +70,8 @@ function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks
       { id: 'opt_2', text: '', isCorrect: false },
       { id: 'opt_3', text: '', isCorrect: false },
       { id: 'opt_4', text: '', isCorrect: false }
-    ]
+    ],
+    correct_index: 0
   };
 }
 
@@ -77,15 +87,30 @@ function normalizeQuestions(rawList, defaultSecondMarks = 1, defaultPenalty = 0,
         val = '';
       }
     }
+    const qFormat = q.format || q.questionType || (q.options && q.options.length > 0 ? 'mcq' : (q.answer || q.correct_answer ? 'direct' : 'mcq'));
+    const qText = q.text || q.question || '';
+    const qAnswer = q.answer !== undefined ? q.answer : (q.correct_answer || '');
+    const altAnswers = Array.isArray(q.alternativeAnswers) ? q.alternativeAnswers : (Array.isArray(q.acceptableAnswers) ? q.acceptableAnswers : (Array.isArray(q.answers) ? q.answers : []));
+    const opts = Array.isArray(q.options) ? q.options : [];
+    let correctIdx = q.correct_index;
+    if (correctIdx === undefined || correctIdx === null) {
+      const foundIdx = opts.findIndex(o => o.isCorrect);
+      correctIdx = foundIdx >= 0 ? foundIdx : 0;
+    }
     return {
       ...q,
-      format: q.format || (q.options && q.options.length > 0 ? 'mcq' : (q.answer ? 'direct' : 'mcq')),
+      text: qText,
+      question: qText,
+      format: qFormat,
+      questionType: qFormat,
       mediaType: q.mediaType || 'image',
       mediaUrl: q.mediaUrl || '',
-      answer: q.answer !== undefined ? q.answer : '',
-      acceptableAnswers: Array.isArray(q.acceptableAnswers)
-        ? q.acceptableAnswers
-        : (Array.isArray(q.answers) ? q.answers : []),
+      answer: qAnswer,
+      correct_answer: qAnswer,
+      acceptableAnswers: altAnswers,
+      alternativeAnswers: altAnswers,
+      options: opts,
+      correct_index: correctIdx,
       secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondMarks) || 1),
       penaltyMarks: q.penaltyMarks !== undefined ? q.penaltyMarks : Number(defaultPenalty) || 0,
       secondTryPenaltyMarks: q.secondTryPenaltyMarks !== undefined ? q.secondTryPenaltyMarks : Number(defaultSecondPenalty) || 0,
@@ -120,7 +145,10 @@ function StylishUnitDropdown({ value = 'sec', onChange }) {
     <div className="relative inline-block" ref={dropdownRef}>
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        }}
         className="flex items-center gap-1 px-2 py-0.5 rounded-lg hover:bg-amber-100/70 dark:hover:bg-amber-900/50 text-amber-700 dark:text-amber-400 text-[11px] font-black transition-all cursor-pointer select-none"
       >
         <span>{value}</span>
@@ -135,7 +163,8 @@ function StylishUnitDropdown({ value = 'sec', onChange }) {
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   onChange(opt.value);
                   setIsOpen(false);
                 }}
@@ -188,6 +217,35 @@ export default function QuizWorkspacePage() {
   const [roundToDeleteNum, setRoundToDeleteNum] = useState(null);
   const [roundIntroMediaUrl, setRoundIntroMediaUrl] = useState('');
   const [roundIntroMediaType, setRoundIntroMediaType] = useState('video');
+  const [masterTimeLimit, setMasterTimeLimit] = useState(60);
+  const [masterTimeValue, setMasterTimeValue] = useState(60);
+  const [masterTimeUnit, setMasterTimeUnit] = useState('sec');
+  const [allowPass, setAllowPass] = useState(true);
+
+  const handleMasterTimeValueChange = (val) => {
+    setMasterTimeValue(val);
+    const parsed = parseFloat(val);
+    if (!isNaN(parsed) && parsed > 0) {
+      const inSec = masterTimeUnit === 'min' ? Math.round(parsed * 60) : Math.round(parsed);
+      setMasterTimeLimit(inSec);
+    }
+  };
+
+  const handleMasterTimeUnitChange = (newUnit) => {
+    if (newUnit === masterTimeUnit) return;
+    const num = parseFloat(masterTimeValue) || (masterTimeLimit ? (masterTimeUnit === 'min' ? masterTimeLimit / 60 : masterTimeLimit) : 60);
+    if (newUnit === 'min') {
+      const converted = Math.round((num / 60) * 10) / 10;
+      setMasterTimeValue(converted || 1);
+      setMasterTimeUnit('min');
+      setMasterTimeLimit(Math.round((converted || 1) * 60));
+    } else {
+      const converted = Math.round(num * 60);
+      setMasterTimeValue(converted || 60);
+      setMasterTimeUnit('sec');
+      setMasterTimeLimit(converted || 60);
+    }
+  };
 
   // Status notification
   const [statusMsg, setStatusMsg] = useState({ type: '', text: '' });
@@ -397,9 +455,17 @@ export default function QuizWorkspacePage() {
         const roundPen = activeRound.penaltyMarks !== undefined ? Number(activeRound.penaltyMarks) : (Number(data.defaultPenaltyMarks) || 0);
         const roundSecondPen = activeRound.secondTryPenaltyMarks !== undefined ? Number(activeRound.secondTryPenaltyMarks) : (Number(data.defaultSecondTryPenaltyMarks) || 0);
         const roundUnansPen = activeRound.unansweredPenaltyMarks !== undefined ? Number(activeRound.unansweredPenaltyMarks) : (Number(data.defaultUnansweredPenaltyMarks) || 0);
+        const roundMasterTime = activeRound.masterTimeLimit !== undefined ? Number(activeRound.masterTimeLimit) : 60;
+        const roundAllowPass = activeRound.allowPass !== undefined ? Boolean(activeRound.allowPass) : true;
+        const roundMasterUnit = activeRound.masterTimeUnit || 'sec';
+        const roundMasterVal = activeRound.masterTimeValue !== undefined ? activeRound.masterTimeValue : (roundMasterUnit === 'min' ? Math.round((roundMasterTime / 60) * 10) / 10 : roundMasterTime);
         setDefaultPenaltyMarks(roundPen);
         setDefaultSecondTryPenaltyMarks(roundSecondPen);
         setDefaultUnansweredPenaltyMarks(roundUnansPen);
+        setMasterTimeLimit(roundMasterTime);
+        setMasterTimeUnit(roundMasterUnit);
+        setMasterTimeValue(roundMasterVal);
+        setAllowPass(roundAllowPass);
 
         let rawQuestions = Array.isArray(activeRound.questions) && activeRound.questions.length > 0
           ? activeRound.questions
@@ -439,18 +505,40 @@ export default function QuizWorkspacePage() {
 
   // Helper to sanitize current questions state
   const getSanitizedQuestions = () => {
-    return questions.map(q => ({
-      ...q,
-      marks: Math.max(1, parseInt(q.marks, 10) || 1),
-      ...(selectedRoundType === 'one_question_two_chances'
-        ? {
-            secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1),
-            secondTryPenaltyMarks: q.secondTryPenaltyMarks !== undefined && q.secondTryPenaltyMarks !== '' ? Math.max(0, parseFloat(q.secondTryPenaltyMarks) || 0) : (Number(defaultSecondTryPenaltyMarks) || 0)
-          }
-        : {}),
-      penaltyMarks: q.penaltyMarks !== undefined && q.penaltyMarks !== '' ? Math.max(0, parseFloat(q.penaltyMarks) || 0) : (Number(defaultPenaltyMarks) || 0),
-      unansweredPenaltyMarks: q.unansweredPenaltyMarks !== undefined && q.unansweredPenaltyMarks !== '' ? Math.max(0, parseFloat(q.unansweredPenaltyMarks) || 0) : (Number(defaultUnansweredPenaltyMarks) || 0)
-    }));
+    return questions.map(q => {
+      const qFormat = q.format || q.questionType || (q.options && q.options.length > 0 ? 'mcq' : (q.answer ? 'direct' : 'mcq'));
+      const qText = q.text || q.question || '';
+      const qAnswer = q.answer !== undefined ? q.answer : (q.correct_answer || '');
+      const altAnswers = Array.isArray(q.alternativeAnswers) ? q.alternativeAnswers : (Array.isArray(q.acceptableAnswers) ? q.acceptableAnswers : (Array.isArray(q.answers) ? q.answers : []));
+      const opts = Array.isArray(q.options) ? q.options : [];
+      let correctIdx = q.correct_index;
+      if (correctIdx === undefined || correctIdx === null) {
+        const foundIdx = opts.findIndex(o => o.isCorrect);
+        correctIdx = foundIdx >= 0 ? foundIdx : 0;
+      }
+      return {
+        ...q,
+        format: qFormat,
+        questionType: qFormat,
+        text: qText,
+        question: qText,
+        answer: qAnswer,
+        correct_answer: qAnswer,
+        acceptableAnswers: altAnswers,
+        alternativeAnswers: altAnswers,
+        options: opts,
+        correct_index: correctIdx,
+        marks: Math.max(1, parseInt(q.marks, 10) || 1),
+        ...(selectedRoundType === 'one_question_two_chances'
+          ? {
+              secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1),
+              secondTryPenaltyMarks: q.secondTryPenaltyMarks !== undefined && q.secondTryPenaltyMarks !== '' ? Math.max(0, parseFloat(q.secondTryPenaltyMarks) || 0) : (Number(defaultSecondTryPenaltyMarks) || 0)
+            }
+          : {}),
+        penaltyMarks: q.penaltyMarks !== undefined && q.penaltyMarks !== '' ? Math.max(0, parseFloat(q.penaltyMarks) || 0) : (Number(defaultPenaltyMarks) || 0),
+        unansweredPenaltyMarks: q.unansweredPenaltyMarks !== undefined && q.unansweredPenaltyMarks !== '' ? Math.max(0, parseFloat(q.unansweredPenaltyMarks) || 0) : (Number(defaultUnansweredPenaltyMarks) || 0)
+      };
+    });
   };
 
   // Switch between rounds in the workspace
@@ -467,6 +555,10 @@ export default function QuizWorkspacePage() {
           mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedCurrentQuestions,
+          masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+          masterTimeValue: masterTimeValue,
+          masterTimeUnit: masterTimeUnit,
+          allowPass: allowPass !== false,
           penaltyMarks: Number(defaultPenaltyMarks) || 0,
           secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
           unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -484,6 +576,8 @@ export default function QuizWorkspacePage() {
         mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
         isTypeConfirmed: isTypeConfirmed,
         questions: sanitizedCurrentQuestions,
+        masterTimeLimit: Number(masterTimeLimit) || 60,
+        allowPass: allowPass !== false,
         penaltyMarks: Number(defaultPenaltyMarks) || 0,
         secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
         unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -522,9 +616,17 @@ export default function QuizWorkspacePage() {
     const roundPen = targetRound.penaltyMarks !== undefined ? Number(targetRound.penaltyMarks) : 0;
     const roundSecondPen = targetRound.secondTryPenaltyMarks !== undefined ? Number(targetRound.secondTryPenaltyMarks) : 0;
     const roundUnansPen = targetRound.unansweredPenaltyMarks !== undefined ? Number(targetRound.unansweredPenaltyMarks) : 0;
+    const roundMasterTime = targetRound.masterTimeLimit !== undefined ? Number(targetRound.masterTimeLimit) : 60;
+    const roundAllowPass = targetRound.allowPass !== undefined ? Boolean(targetRound.allowPass) : true;
+    const roundMasterUnit = targetRound.masterTimeUnit || 'sec';
+    const roundMasterVal = targetRound.masterTimeValue !== undefined ? targetRound.masterTimeValue : (roundMasterUnit === 'min' ? Math.round((roundMasterTime / 60) * 10) / 10 : roundMasterTime);
     setDefaultPenaltyMarks(roundPen);
     setDefaultSecondTryPenaltyMarks(roundSecondPen);
     setDefaultUnansweredPenaltyMarks(roundUnansPen);
+    setMasterTimeLimit(roundMasterTime);
+    setMasterTimeUnit(roundMasterUnit);
+    setMasterTimeValue(roundMasterVal);
+    setAllowPass(roundAllowPass);
 
     const rawQuestions = Array.isArray(targetRound.questions) && targetRound.questions.length > 0
       ? targetRound.questions
@@ -652,25 +754,42 @@ export default function QuizWorkspacePage() {
     }
 
     const targetQuizId = quiz?.id || location.state?.quizId || quizId;
-    const isDirect = selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && mediaRoundFormat === 'direct');
+    const isRapid = selectedRoundType === 'rapid_fire';
+    const isDirect = selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && mediaRoundFormat === 'direct') || (isRapid && mediaRoundFormat === 'direct');
     const isTwoChances = selectedRoundType === 'one_question_two_chances';
 
-    const defaultQ = questions.length > 0 ? questions.map(q => ({
-      ...q,
-      format: isDirect ? 'direct' : 'mcq',
-      answer: q.answer !== undefined ? q.answer : '',
-      secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondTryMarks) || 1),
-      options: isDirect
-        ? []
-        : (q.options && q.options.length > 0
-          ? q.options
-          : [
-              { id: 'opt_1', text: '', isCorrect: true },
-              { id: 'opt_2', text: '', isCorrect: false },
-              { id: 'opt_3', text: '', isCorrect: false },
-              { id: 'opt_4', text: '', isCorrect: false }
-            ])
-    })) : [createDefaultQuestion(selectedRoundType, defaultMarks, defaultSecondTryMarks, mediaRoundFormat)];
+    if (isRapid) {
+      if (!defaultMarks || Number(defaultMarks) === 1) setDefaultMarks(10);
+      if (defaultPenaltyMarks === 0) setDefaultPenaltyMarks(2);
+      setMasterTimeLimit(60);
+      setMasterTimeValue(60);
+      setMasterTimeUnit('sec');
+      setAllowPass(true);
+    }
+
+    const defaultQ = questions.length > 0 ? questions.map(q => {
+      const qFormat = q.format || (isDirect ? 'direct' : 'mcq');
+      return {
+        ...q,
+        format: qFormat,
+        questionType: qFormat,
+        text: q.text || q.question || '',
+        question: q.text || q.question || '',
+        answer: q.answer !== undefined ? q.answer : (q.correct_answer || ''),
+        correct_answer: q.answer !== undefined ? q.answer : (q.correct_answer || ''),
+        secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondTryMarks) || 1),
+        options: qFormat === 'direct'
+          ? []
+          : (q.options && q.options.length > 0
+            ? q.options
+            : [
+                { id: 'opt_1', text: '', isCorrect: true },
+                { id: 'opt_2', text: '', isCorrect: false },
+                { id: 'opt_3', text: '', isCorrect: false },
+                { id: 'opt_4', text: '', isCorrect: false }
+              ])
+      };
+    }) : [createDefaultQuestion(selectedRoundType, isRapid ? 10 : defaultMarks, defaultSecondTryMarks, mediaRoundFormat, isRapid ? 2 : defaultPenaltyMarks, defaultSecondTryPenaltyMarks, defaultUnansweredPenaltyMarks)];
 
     const updatedRounds = rounds.map(r => {
       if (r.roundNumber === currentRound) {
@@ -678,6 +797,10 @@ export default function QuizWorkspacePage() {
           ...r,
           quizType: selectedRoundType,
           mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
+          masterTimeLimit: isRapid ? 60 : (r.masterTimeLimit || 60),
+          allowPass: isRapid ? true : (r.allowPass !== false),
+          defaultMarks: isRapid ? 10 : defaultMarks,
+          defaultPenaltyMarks: isRapid ? 2 : defaultPenaltyMarks,
           isTypeConfirmed: true,
           questions: r.questions && r.questions.length > 0 ? r.questions : defaultQ
         };
@@ -689,6 +812,10 @@ export default function QuizWorkspacePage() {
       updatedRounds.push({
         roundNumber: currentRound,
         quizType: selectedRoundType,
+        masterTimeLimit: isRapid ? 60 : 60,
+        allowPass: true,
+        defaultMarks: isRapid ? 10 : defaultMarks,
+        defaultPenaltyMarks: isRapid ? 2 : defaultPenaltyMarks,
         isTypeConfirmed: true,
         questions: defaultQ,
         isCompleted: false
@@ -757,6 +884,10 @@ export default function QuizWorkspacePage() {
             mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
             isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions,
+            masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+            masterTimeValue: masterTimeValue,
+            masterTimeUnit: masterTimeUnit,
+            allowPass: allowPass !== false,
             penaltyMarks: Number(defaultPenaltyMarks) || 0,
             secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
             unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -774,6 +905,10 @@ export default function QuizWorkspacePage() {
           mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+          masterTimeValue: masterTimeValue,
+          masterTimeUnit: masterTimeUnit,
+          allowPass: allowPass !== false,
           penaltyMarks: Number(defaultPenaltyMarks) || 0,
           secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
           unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -842,6 +977,10 @@ export default function QuizWorkspacePage() {
             mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
             isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions,
+            masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+            masterTimeValue: masterTimeValue,
+            masterTimeUnit: masterTimeUnit,
+            allowPass: allowPass !== false,
             penaltyMarks: Number(defaultPenaltyMarks) || 0,
             secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
             unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -859,6 +998,10 @@ export default function QuizWorkspacePage() {
           mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+          masterTimeValue: masterTimeValue,
+          masterTimeUnit: masterTimeUnit,
+          allowPass: allowPass !== false,
           penaltyMarks: Number(defaultPenaltyMarks) || 0,
           secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
           unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
@@ -990,6 +1133,10 @@ export default function QuizWorkspacePage() {
           defaultPenaltyMarks: penVal,
           defaultSecondTryPenaltyMarks: secondPenVal,
           defaultUnansweredPenaltyMarks: unansPenVal,
+          masterTimeLimit: masterTimeUnit === 'min' ? Math.round((parseFloat(masterTimeValue) || 1) * 60) : Math.round(parseFloat(masterTimeValue) || (Number(masterTimeLimit) || 60)),
+          masterTimeValue: masterTimeValue,
+          masterTimeUnit: masterTimeUnit,
+          allowPass: allowPass !== false,
           defaultTimeValue: hasTime ? numTime : '',
           defaultTimeUnit
         };
@@ -1793,13 +1940,43 @@ export default function QuizWorkspacePage() {
             </div>
           </div>
 
-          {/* Mark, Time & Penalty Inputs: Single horizontal row */}
-          <div className="flex items-center gap-2 overflow-x-auto max-w-full py-0.5 flex-nowrap whitespace-nowrap scrollbar-thin">
-            {/* Mark Input(s) */}
-            {selectedRoundType === 'one_question_two_chances' ? (
+          {/* Mark, Time & Penalty Inputs */}
+          <div className="flex items-center gap-2 flex-wrap max-w-full py-0.5">
+            {selectedRoundType === 'rapid_fire' ? (
               <>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="1st Attempt Marks">
-                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">1st Try:</span>
+                {/* Master Turn Time with Stylish sec/min */}
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 shadow-xs shrink-0" title="Total countdown duration for the player's rapid turn">
+                  <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500 shrink-0" />
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300">Master Turn Time:</span>
+                  <input
+                    type="number"
+                    min={masterTimeUnit === 'min' ? 0.2 : 5}
+                    max={masterTimeUnit === 'min' ? 60 : 3600}
+                    step={masterTimeUnit === 'min' ? 0.5 : 1}
+                    value={masterTimeValue}
+                    onChange={(e) => handleMasterTimeValueChange(e.target.value)}
+                    className="w-11 sm:w-12 text-xs font-black text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <StylishUnitDropdown
+                    value={masterTimeUnit}
+                    onChange={handleMasterTimeUnitChange}
+                  />
+                </div>
+
+                {/* Pass / Skip Question Checkbox */}
+                <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0 cursor-pointer select-none" title="Allow the hot seat player to click Pass / Skip">
+                  <input
+                    type="checkbox"
+                    checked={allowPass}
+                    onChange={(e) => setAllowPass(e.target.checked)}
+                    className="w-4 h-4 rounded text-violet-600 focus:ring-violet-500 cursor-pointer"
+                  />
+                  <span className="text-[11px] font-bold text-gray-700 dark:text-gray-300">Allow Pass / Skip</span>
+                </label>
+
+                {/* Global Mark Input */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0">
+                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
                   <input
                     type="number"
                     min={1}
@@ -1808,7 +1985,7 @@ export default function QuizWorkspacePage() {
                     onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
                     onBlur={() => {
                       if (!defaultMarks || Number(defaultMarks) < 1) {
-                        setDefaultMarks(1);
+                        setDefaultMarks(10);
                       }
                     }}
                     className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -1816,74 +1993,14 @@ export default function QuizWorkspacePage() {
                   <span className="text-[10px] text-gray-400">pts</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="2nd Attempt Marks">
-                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">2nd Try:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={defaultSecondTryMarks !== undefined && defaultSecondTryMarks !== null ? defaultSecondTryMarks : ''}
-                    onChange={(e) => setDefaultSecondTryMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
-                    onBlur={() => {
-                      if (!defaultSecondTryMarks || Number(defaultSecondTryMarks) < 1) {
-                        setDefaultSecondTryMarks(1);
-                      }
-                    }}
-                    className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                  <span className="text-[10px] text-gray-400">pts</span>
-                </div>
-              </>
-            ) : (
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0">
-                <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={defaultMarks !== undefined && defaultMarks !== null ? defaultMarks : ''}
-                  onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
-                  onBlur={() => {
-                    if (!defaultMarks || Number(defaultMarks) < 1) {
-                      setDefaultMarks(1);
-                    }
-                  }}
-                  className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                />
-                <span className="text-[10px] text-gray-400">pts</span>
-              </div>
-            )}
-
-            {/* Time Limit Input with Stylish sec/min */}
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs shrink-0">
-              <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-              <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
-              <input
-                type="number"
-                min={0}
-                max={defaultTimeUnit === 'min' ? 60 : 3600}
-                placeholder="None"
-                value={defaultTimeValue}
-                onChange={(e) => setDefaultTimeValue(e.target.value)}
-                className="w-11 sm:w-12 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
-              />
-              <StylishUnitDropdown
-                value={defaultTimeUnit}
-                onChange={setDefaultTimeUnit}
-              />
-            </div>
-
-            {/* Penalty Configuration Controls for this Round */}
-            {selectedRoundType === 'one_question_two_chances' ? (
-              <>
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 1st try is wrong (optional, default 0)">
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">1st Wrong:</span>
+                {/* Global Wrong Penalty */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Wrong answer penalty">
+                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Wrong Pen:</span>
                   <input
                     type="number"
                     min={0}
                     max={50}
                     step={0.5}
-                    placeholder="0"
                     value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
                     onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
                     className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
@@ -1891,52 +2008,168 @@ export default function QuizWorkspacePage() {
                   <span className="text-[10px] text-gray-400">pts</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 2nd try is wrong (optional, default 0)">
-                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">2nd Wrong:</span>
+                {/* Global Pass Penalty */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="Penalty when a question is passed or unanswered">
+                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Pass Pen:</span>
                   <input
                     type="number"
                     min={0}
                     max={50}
                     step={0.5}
                     placeholder="0"
-                    value={defaultSecondTryPenaltyMarks !== undefined && defaultSecondTryPenaltyMarks !== null ? defaultSecondTryPenaltyMarks : ''}
-                    onChange={(e) => setDefaultSecondTryPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
-                    className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                    value={defaultUnansweredPenaltyMarks !== undefined && defaultUnansweredPenaltyMarks !== null ? defaultUnansweredPenaltyMarks : ''}
+                    onChange={(e) => setDefaultUnansweredPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-10 sm:w-11 text-xs font-bold text-gray-700 dark:text-gray-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
                   />
                   <span className="text-[10px] text-gray-400">pts</span>
                 </div>
               </>
             ) : (
-              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks for wrong answer (optional, default 0)">
-                <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Wrong Pen:</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={50}
-                  step={0.5}
-                  placeholder="0"
-                  value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
-                  onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
-                  className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
-                />
-                <span className="text-[10px] text-gray-400">pts</span>
-              </div>
-            )}
+              <>
+                {/* Mark Input(s) */}
+                {selectedRoundType === 'one_question_two_chances' ? (
+                  <>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="1st Attempt Marks">
+                      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">1st Try:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={defaultMarks !== undefined && defaultMarks !== null ? defaultMarks : ''}
+                        onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                        onBlur={() => {
+                          if (!defaultMarks || Number(defaultMarks) < 1) {
+                            setDefaultMarks(1);
+                          }
+                        }}
+                        className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[10px] text-gray-400">pts</span>
+                    </div>
 
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="Penalty marks if time runs out without answering (optional, default 0)">
-              <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Unanswered:</span>
-              <input
-                type="number"
-                min={0}
-                max={50}
-                step={0.5}
-                placeholder="0"
-                value={defaultUnansweredPenaltyMarks !== undefined && defaultUnansweredPenaltyMarks !== null ? defaultUnansweredPenaltyMarks : ''}
-                onChange={(e) => setDefaultUnansweredPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
-                className="w-10 sm:w-11 text-xs font-bold text-gray-700 dark:text-gray-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
-              />
-              <span className="text-[10px] text-gray-400">pts</span>
-            </div>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="2nd Attempt Marks">
+                      <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">2nd Try:</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        value={defaultSecondTryMarks !== undefined && defaultSecondTryMarks !== null ? defaultSecondTryMarks : ''}
+                        onChange={(e) => setDefaultSecondTryMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                        onBlur={() => {
+                          if (!defaultSecondTryMarks || Number(defaultSecondTryMarks) < 1) {
+                            setDefaultSecondTryMarks(1);
+                          }
+                        }}
+                        className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[10px] text-gray-400">pts</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0">
+                    <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={defaultMarks !== undefined && defaultMarks !== null ? defaultMarks : ''}
+                      onChange={(e) => setDefaultMarks(e.target.value === '' ? '' : (parseInt(e.target.value, 10) || ''))}
+                      onBlur={() => {
+                        if (!defaultMarks || Number(defaultMarks) < 1) {
+                          setDefaultMarks(1);
+                        }
+                      }}
+                      className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="text-[10px] text-gray-400">pts</span>
+                  </div>
+                )}
+
+                {/* Time Limit Input with Stylish sec/min */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs shrink-0">
+                  <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={defaultTimeUnit === 'min' ? 60 : 3600}
+                    placeholder="None"
+                    value={defaultTimeValue}
+                    onChange={(e) => setDefaultTimeValue(e.target.value)}
+                    className="w-11 sm:w-12 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
+                  />
+                  <StylishUnitDropdown
+                    value={defaultTimeUnit}
+                    onChange={setDefaultTimeUnit}
+                  />
+                </div>
+
+                {/* Penalty Configuration Controls for this Round */}
+                {selectedRoundType === 'one_question_two_chances' ? (
+                  <>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 1st try is wrong (optional, default 0)">
+                      <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">1st Wrong:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={50}
+                        step={0.5}
+                        placeholder="0"
+                        value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
+                        onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                      />
+                      <span className="text-[10px] text-gray-400">pts</span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 2nd try is wrong (optional, default 0)">
+                      <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">2nd Wrong:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={50}
+                        step={0.5}
+                        placeholder="0"
+                        value={defaultSecondTryPenaltyMarks !== undefined && defaultSecondTryPenaltyMarks !== null ? defaultSecondTryPenaltyMarks : ''}
+                        onChange={(e) => setDefaultSecondTryPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                      />
+                      <span className="text-[10px] text-gray-400">pts</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks for wrong answer (optional, default 0)">
+                    <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Wrong Pen:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={50}
+                      step={0.5}
+                      placeholder="0"
+                      value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
+                      onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                      className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                    />
+                    <span className="text-[10px] text-gray-400">pts</span>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="Penalty marks if time runs out without answering (optional, default 0)">
+                  <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Unanswered:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    placeholder="0"
+                    value={defaultUnansweredPenaltyMarks !== undefined && defaultUnansweredPenaltyMarks !== null ? defaultUnansweredPenaltyMarks : ''}
+                    onChange={(e) => setDefaultUnansweredPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-10 sm:w-11 text-xs font-bold text-gray-700 dark:text-gray-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                  />
+                  <span className="text-[10px] text-gray-400">pts</span>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -2080,26 +2313,36 @@ export default function QuizWorkspacePage() {
                   </div>
 
                   {/* Optional Time Limit Input with Stylish sec/min */}
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50"
-                    title="Optional time limit for this question"
-                  >
-                    <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
-                    <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={q.timeUnit === 'min' ? 60 : 3600}
-                      placeholder="None"
-                      value={q.timeValue !== undefined && q.timeValue !== null && q.timeValue !== '' ? q.timeValue : ''}
-                      onChange={(e) => handleQuestionTimeChange(qIdx, e.target.value, q.timeUnit || 'sec')}
-                      className="w-12 text-xs font-black text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-amber-400/60 placeholder:font-normal"
-                    />
-                    <StylishUnitDropdown
-                      value={q.timeUnit || 'sec'}
-                      onChange={(newUnit) => handleQuestionTimeChange(qIdx, q.timeValue, newUnit)}
-                    />
-                  </div>
+                  {selectedRoundType === 'rapid_fire' ? (
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-black shrink-0"
+                      title="Controlled by Round Master Turn Timer"
+                    >
+                      <Zap className="w-3.5 h-3.5 fill-amber-500 text-amber-500 shrink-0" />
+                      <span>Master ({masterTimeValue || masterTimeLimit} {masterTimeUnit || 'sec'})</span>
+                    </div>
+                  ) : (
+                    <div
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50"
+                      title="Optional time limit for this question"
+                    >
+                      <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={q.timeUnit === 'min' ? 60 : 3600}
+                        placeholder="None"
+                        value={q.timeValue !== undefined && q.timeValue !== null && q.timeValue !== '' ? q.timeValue : ''}
+                        onChange={(e) => handleQuestionTimeChange(qIdx, e.target.value, q.timeUnit || 'sec')}
+                        className="w-12 text-xs font-black text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-amber-400/60 placeholder:font-normal"
+                      />
+                      <StylishUnitDropdown
+                        value={q.timeUnit || 'sec'}
+                        onChange={(newUnit) => handleQuestionTimeChange(qIdx, q.timeValue, newUnit)}
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {/* Question Actions (Move, Duplicate, Delete) */}
@@ -2140,8 +2383,8 @@ export default function QuizWorkspacePage() {
                 </div>
               </div>
 
-              {/* Question Format Selector (for media_based round or media questions) */}
-              {(selectedRoundType === 'media_based' || q.mediaUrl) && (
+              {/* Question Format Selector (for media_based round or media questions or rapid fire) */}
+              {(selectedRoundType === 'media_based' || selectedRoundType === 'rapid_fire' || q.mediaUrl) && (
                 <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gray-50/90 dark:bg-[#12141F] border border-gray-200/90 dark:border-gray-800">
                   <div className="space-y-0.5">
                     <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
@@ -2186,7 +2429,7 @@ export default function QuizWorkspacePage() {
               )}
 
               {/* Media Attachment (URL input, media type tabs, live preview) */}
-              {(selectedRoundType === 'media_based' || q.mediaUrl) && (
+              {(selectedRoundType === 'media_based' || selectedRoundType === 'rapid_fire' || q.mediaUrl) && (
                 <div className="p-3.5 rounded-2xl bg-violet-50/40 dark:bg-violet-950/20 border border-violet-100 dark:border-violet-900/40 space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-violet-700 dark:text-violet-300">
@@ -2279,8 +2522,8 @@ export default function QuizWorkspacePage() {
                 />
               </div>
 
-              {selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && q.format === 'direct') ? (
-                /* Direct Answer (Answer to Question / Direct Media Question) */
+              {selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && q.format === 'direct') || (selectedRoundType === 'rapid_fire' && (q.format === 'direct' || q.questionType === 'direct')) ? (
+                /* Direct Answer (Answer to Question / Direct Media Question / Rapid Fire Q&A) */
                 <div className="space-y-3 pt-1">
                   <div>
                     <div className="flex items-center justify-between mb-1.5">

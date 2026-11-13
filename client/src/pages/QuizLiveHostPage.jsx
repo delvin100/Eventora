@@ -26,16 +26,21 @@ import {
   Flame,
   Radio,
   Search,
-  Ban
+  Ban,
+  Zap,
+  FastForward,
+  Square,
+  Dices
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
 import { quizService } from '../services/quizService';
-import { quizRealtimeService, generateRoomPin } from '../services/quizRealtimeService';
+import { quizRealtimeService, generateRoomPin, calculateRapidTurnScore } from '../services/quizRealtimeService';
 import { slugify } from '../utils/slugUtils';
 import { computeStandings, getRankBadge, getRankEmoji } from '../utils/quizRankingUtils';
 import MediaViewer from '../components/quiz/MediaViewer';
 import ConfirmDialog from '../components/common/ConfirmDialog';
+import WheelCanvas from '../components/wheel/WheelCanvas';
 import QRCode from 'qrcode';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -185,6 +190,36 @@ export default function QuizLiveHostPage() {
   const lastSeenMapRef = useRef(new Map());
   const removedPlayerIdsRef = useRef(new Set());
   const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // Rapid Fire Round State
+  const [rapidHotSeatPlayer, setRapidHotSeatPlayer] = useState(null);
+  const [rapidCompletedPlayerIds, setRapidCompletedPlayerIds] = useState([]);
+  const [rapidQuestionIdx, setRapidQuestionIdx] = useState(0);
+  const [rapidTimer, setRapidTimer] = useState(60);
+  const [rapidCurrentScore, setRapidCurrentScore] = useState(0);
+  const [rapidSummary, setRapidSummary] = useState({ correct: 0, wrong: 0, passed: 0 });
+  const [rapidPickerTab, setRapidPickerTab] = useState('wheel'); // 'wheel' | 'manual'
+  const [rapidSelectedWinner, setRapidSelectedWinner] = useState(null);
+  const [isSpinningWheel, setIsSpinningWheel] = useState(false);
+  const [reactions, setReactions] = useState([]);
+  const wheelRef = useRef(null);
+  const rapidTimerIntervalRef = useRef(null);
+  const rapidMasterEndTimeRef = useRef(null);
+  const handleRapidSubmissionRef = useRef(null);
+
+  const addFloatingReaction = useCallback((emoji, senderName = '') => {
+    const id = `${Date.now()}_${Math.random()}`;
+    const x = Math.floor(Math.random() * 80) + 10;
+    setReactions(prev => [...prev.slice(-25), { id, emoji, senderName, x }]);
+    setTimeout(() => {
+      setReactions(prev => prev.filter(r => r.id !== id));
+    }, 2400);
+  }, []);
+
+  const eligibleRapidParticipants = useMemo(() => {
+    const completedSet = new Set(rapidCompletedPlayerIds);
+    return participants.filter(p => !completedSet.has(p.id));
+  }, [participants, rapidCompletedPlayerIds]);
   const [isFullscreen, setIsFullscreen] = useState(() => {
     return Boolean(
       (typeof document !== 'undefined' && document.fullscreenElement) ||
@@ -425,7 +460,7 @@ export default function QuizLiveHostPage() {
     const qIdx = overrideState.questionNumber !== undefined ? overrideState.questionNumber - 1 : currentQuestionIdx;
     const currentQ = targetQuestions[qIdx] || activeQuestion;
     const activeQuizState = overrideState.status || quizState;
-    if (!currentQ && activeQuizState !== 'LOBBY' && activeQuizState !== 'FINISHED' && activeQuizState !== 'ROUND_TRANSITION') return;
+    if (!currentQ && activeQuizState !== 'LOBBY' && activeQuizState !== 'FINISHED' && activeQuizState !== 'ROUND_TRANSITION' && !activeQuizState.startsWith('RAPID_')) return;
 
     const roundType = targetRoundObj?.quizType || quiz?.quizType;
     const qIsDirect = roundType === 'answer_to_question' || currentQ?.format === 'direct' || (!currentQ?.options?.length && currentQ?.answer !== undefined);
@@ -457,7 +492,9 @@ export default function QuizLiveHostPage() {
       pin: roomPin,
       quizTitle: quiz?.name || 'Live Quiz',
       status: activeQuizState,
+      quizState: activeQuizState,
       round: targetRound,
+      activeRound: targetRound,
       totalRounds: totalRounds,
       questionNumber: (qIdx >= 0 ? qIdx : 0) + 1,
       totalQuestions: targetQuestions.length,
@@ -478,6 +515,37 @@ export default function QuizLiveHostPage() {
       penaltyMarks: Number(currentQ?.penaltyMarks ?? activeRoundObj?.penaltyMarks ?? 0) || 0,
       secondTryPenaltyMarks: Number(currentQ?.secondTryPenaltyMarks ?? activeRoundObj?.secondTryPenaltyMarks ?? 0) || 0,
       unansweredPenaltyMarks: Number(currentQ?.unansweredPenaltyMarks ?? activeRoundObj?.unansweredPenaltyMarks ?? 0) || 0,
+      // Rapid Fire Round State Fields
+      isRapidRound: roundType === 'rapid_fire',
+      hotSeatPlayerId: overrideState.hotSeatPlayerId !== undefined ? overrideState.hotSeatPlayerId : (rapidHotSeatPlayer?.id || null),
+      hotSeatPlayerName: overrideState.hotSeatPlayerName !== undefined ? overrideState.hotSeatPlayerName : (rapidHotSeatPlayer?.name || null),
+      masterTimeLimit: overrideState.masterTimeLimit !== undefined ? overrideState.masterTimeLimit : (Number(targetRoundObj?.masterTimeLimit) || 60),
+      masterEndTime: overrideState.masterEndTime !== undefined ? overrideState.masterEndTime : (rapidMasterEndTimeRef.current || null),
+      allowPass: targetRoundObj?.allowPass !== false,
+      currentRapidIndex: overrideState.currentRapidIndex !== undefined ? overrideState.currentRapidIndex : rapidQuestionIdx,
+      totalRapidQuestions: overrideState.totalRapidQuestions !== undefined ? overrideState.totalRapidQuestions : targetQuestions.length,
+      rapidCurrentScore: overrideState.rapidCurrentScore !== undefined ? overrideState.rapidCurrentScore : rapidCurrentScore,
+      rapidSummary: overrideState.rapidSummary || rapidSummary,
+      rapidQuestions: overrideState.rapidQuestions || (roundType === 'rapid_fire' ? targetQuestions.map((q, i) => {
+        const qFormat = q.format || q.questionType || (q.options?.length ? 'mcq' : 'direct');
+        return {
+          id: q.id || `q_${i}`,
+          format: qFormat,
+          questionType: qFormat,
+          text: q.text || q.question || '',
+          question: q.text || q.question || '',
+          mediaUrl: q.mediaUrl || '',
+          mediaType: q.mediaType || 'image',
+          marks: Number(q.marks) || Number(targetRoundObj?.defaultMarks) || 10,
+          penaltyMarks: Number(q.penaltyMarks) || Number(targetRoundObj?.defaultPenaltyMarks) || 2,
+          unansweredPenaltyMarks: Number(q.unansweredPenaltyMarks) || Number(targetRoundObj?.defaultUnansweredPenaltyMarks) || 0,
+          options: (q.options || []).map((o, optIdx) => ({
+            id: o.id || `opt_${optIdx}`,
+            text: typeof o === 'string' ? o : (o?.text || `Option ${OPTION_LETTERS[optIdx]}`),
+            index: optIdx
+          }))
+        };
+      }) : undefined),
       leaderboard: computeStandings(
         activeParticipantsList.map((p) => ({
           id: p.id,
@@ -490,7 +558,7 @@ export default function QuizLiveHostPage() {
     };
 
     quizRealtimeService.broadcast('STATE_UPDATE', payload);
-  }, [roomPin, quiz?.name, quiz?.quizType, quizState, currentRound, totalRounds, roundsList, activeRoundObj, currentQuestionIdx, questionsList, activeQuestion, timeLeft, participants]);
+  }, [roomPin, quiz?.name, quiz?.quizType, quizState, currentRound, totalRounds, roundsList, activeRoundObj, currentQuestionIdx, questionsList, activeQuestion, timeLeft, participants, rapidHotSeatPlayer, rapidQuestionIdx, rapidCurrentScore, rapidSummary]);
 
   broadcastCurrentStateRef.current = broadcastCurrentState;
 
@@ -596,6 +664,18 @@ export default function QuizLiveHostPage() {
       handleParticipantSubmissionRef.current?.(submission);
     });
 
+    // Handle Rapid Fire submission
+    const unsubRapidSubmit = quizRealtimeService.on('RAPID_SUBMIT', (payload) => {
+      handleRapidSubmissionRef.current?.(payload);
+    });
+
+    // Handle floating reaction emojis from spectators & players
+    const unsubEmoji = quizRealtimeService.on('EMOJI_REACTION', (data) => {
+      if (data?.emoji) {
+        addFloatingReaction(data.emoji, data.senderName);
+      }
+    });
+
     return () => {
       try {
         localStorage.removeItem(`eventora_active_pin_${roomPin}`);
@@ -608,6 +688,8 @@ export default function QuizLiveHostPage() {
       unsubLeave();
       unsubSync();
       unsubAnswer();
+      unsubRapidSubmit();
+      unsubEmoji();
       unsubCheckRoom();
     };
   }, [roomPin, saveParticipantsToDb, debouncedBroadcastCurrentState]);
@@ -861,6 +943,244 @@ export default function QuizLiveHostPage() {
   }, [activeQuestion, activeRoundObj, quiz?.quizType, currentQuestionIdx, participants, saveParticipantsToDb]);
 
   handleParticipantSubmissionRef.current = handleParticipantSubmission;
+
+  // Rapid Fire Round Controllers
+  const handleFinishRapidTurn = useCallback((override = {}) => {
+    if (rapidTimerIntervalRef.current) {
+      clearInterval(rapidTimerIntervalRef.current);
+      rapidTimerIntervalRef.current = null;
+    }
+    rapidMasterEndTimeRef.current = null;
+
+    const summary = override.summary || rapidSummary;
+    const marksVal = Number(activeRoundObj?.defaultMarks) || 10;
+    const penaltyVal = Number(activeRoundObj?.defaultPenaltyMarks) || 2;
+    const unansPenaltyVal = Number(activeRoundObj?.defaultUnansweredPenaltyMarks) || 0;
+
+    const finalTurnScore = override.score !== undefined
+      ? override.score
+      : calculateRapidTurnScore({
+          correct: summary.correct,
+          wrong: summary.wrong,
+          passed: summary.passed,
+          marks: marksVal,
+          penaltyMarks: penaltyVal,
+          unansweredPenalty: unansPenaltyVal
+        });
+
+    setRapidCurrentScore(finalTurnScore);
+    setQuizState('RAPID_TURN_FINISHED');
+
+    // Update participant score in room & db
+    if (rapidHotSeatPlayer?.id) {
+      setRapidCompletedPlayerIds(prev => Array.from(new Set([...prev, rapidHotSeatPlayer.id])));
+      setParticipants(prev => {
+        const next = prev.map(p => {
+          if (p.id === rapidHotSeatPlayer.id) {
+            return {
+              ...p,
+              score: (Number(p.score) || 0) + finalTurnScore,
+              correctCount: (Number(p.correctCount) || 0) + summary.correct,
+              rapidTurn: {
+                round: currentRound,
+                score: finalTurnScore,
+                correct: summary.correct,
+                wrong: summary.wrong,
+                passed: summary.passed,
+                completedAt: Date.now()
+              }
+            };
+          }
+          return p;
+        });
+        saveParticipantsToDb(next, false);
+        return next;
+      });
+    }
+
+    try {
+      confetti({ particleCount: 80, spread: 80, origin: { y: 0.6 } });
+    } catch (_) {}
+
+    broadcastCurrentState({
+      status: 'RAPID_TURN_FINISHED',
+      quizState: 'RAPID_TURN_FINISHED',
+      rapidCurrentScore: finalTurnScore,
+      rapidSummary: summary,
+      masterEndTime: null
+    });
+  }, [rapidSummary, activeRoundObj, rapidHotSeatPlayer, currentRound, saveParticipantsToDb, broadcastCurrentState]);
+
+  const handleStartRapidTurn = useCallback(() => {
+    if (!rapidHotSeatPlayer) return;
+    const masterLimit = Number(activeRoundObj?.masterTimeLimit) || 60;
+    const endTime = Date.now() + (masterLimit * 1000);
+    rapidMasterEndTimeRef.current = endTime;
+    setRapidTimer(masterLimit);
+    setRapidQuestionIdx(0);
+    setRapidCurrentScore(0);
+    setRapidSummary({ correct: 0, wrong: 0, passed: 0 });
+    setQuizState('RAPID_ACTIVE');
+
+    if (rapidTimerIntervalRef.current) {
+      clearInterval(rapidTimerIntervalRef.current);
+    }
+    rapidTimerIntervalRef.current = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+      setRapidTimer(remaining);
+      if (remaining <= 0) {
+        clearInterval(rapidTimerIntervalRef.current);
+        rapidTimerIntervalRef.current = null;
+        handleFinishRapidTurn();
+      }
+    }, 250);
+
+    broadcastCurrentState({
+      status: 'RAPID_ACTIVE',
+      quizState: 'RAPID_ACTIVE',
+      masterTimeLimit: masterLimit,
+      masterEndTime: endTime,
+      currentRapidIndex: 0,
+      totalRapidQuestions: questionsList.length,
+      rapidCurrentScore: 0,
+      rapidSummary: { correct: 0, wrong: 0, passed: 0 }
+    });
+  }, [rapidHotSeatPlayer, activeRoundObj, questionsList.length, broadcastCurrentState, handleFinishRapidTurn]);
+
+  const handleRapidSubmission = useCallback((payload) => {
+    if (quizState !== 'RAPID_ACTIVE' || !rapidHotSeatPlayer) return;
+    if (payload?.participantId !== rapidHotSeatPlayer.id) return;
+
+    const qIdx = payload.questionIndex !== undefined ? payload.questionIndex : rapidQuestionIdx;
+    const currentQ = questionsList[qIdx];
+    if (!currentQ) return;
+
+    const marksVal = Number(currentQ.marks) || Number(activeRoundObj?.defaultMarks) || 10;
+    const penaltyVal = Number(currentQ.penaltyMarks) || Number(activeRoundObj?.defaultPenaltyMarks) || 2;
+    const unansPenaltyVal = Number(currentQ.unansweredPenaltyMarks) || Number(activeRoundObj?.defaultUnansweredPenaltyMarks) || 0;
+
+    let isCorrect = false;
+    const isPassed = payload.action === 'pass';
+    let ptsChange = 0;
+
+    if (isPassed) {
+      ptsChange = -unansPenaltyVal;
+    } else {
+      const qFormat = currentQ.format || currentQ.questionType || (currentQ.options?.length ? 'mcq' : 'direct');
+      if (qFormat === 'direct') {
+        isCorrect = checkTextAnswerCorrect(
+          payload.textAnswer,
+          currentQ.answer || currentQ.correct_answer,
+          currentQ.acceptableAnswers || currentQ.alternativeAnswers
+        );
+      } else {
+        isCorrect = Number(payload.selectedOptionIndex) === getCorrectOptionIndex(currentQ);
+      }
+
+      if (isCorrect) {
+        ptsChange = marksVal;
+      } else {
+        ptsChange = -penaltyVal;
+      }
+    }
+
+    const nextSummary = {
+      correct: rapidSummary.correct + (isCorrect ? 1 : 0),
+      wrong: rapidSummary.wrong + (!isCorrect && !isPassed ? 1 : 0),
+      passed: rapidSummary.passed + (isPassed ? 1 : 0)
+    };
+    const nextScore = rapidCurrentScore + ptsChange;
+    const nextQIdx = qIdx + 1;
+
+    setRapidSummary(nextSummary);
+    setRapidCurrentScore(nextScore);
+    setRapidQuestionIdx(nextQIdx);
+
+    if (nextQIdx >= questionsList.length) {
+      handleFinishRapidTurn({ summary: nextSummary, score: nextScore });
+    } else {
+      broadcastCurrentState({
+        status: 'RAPID_ACTIVE',
+        currentRapidIndex: nextQIdx,
+        rapidCurrentScore: nextScore,
+        rapidSummary: nextSummary
+      });
+    }
+  }, [quizState, rapidHotSeatPlayer, rapidQuestionIdx, questionsList, activeRoundObj, rapidSummary, rapidCurrentScore, handleFinishRapidTurn, broadcastCurrentState]);
+
+  handleRapidSubmissionRef.current = handleRapidSubmission;
+
+  const handleHostSkipRapidQuestion = useCallback(() => {
+    if (quizState !== 'RAPID_ACTIVE') return;
+    const currentQ = questionsList[rapidQuestionIdx];
+    if (!currentQ) return;
+    const unansPenaltyVal = Number(currentQ.unansweredPenaltyMarks) || Number(activeRoundObj?.defaultUnansweredPenaltyMarks) || 0;
+    const nextSummary = {
+      ...rapidSummary,
+      passed: rapidSummary.passed + 1
+    };
+    const nextScore = rapidCurrentScore - unansPenaltyVal;
+    const nextIdx = rapidQuestionIdx + 1;
+    setRapidSummary(nextSummary);
+    setRapidCurrentScore(nextScore);
+    setRapidQuestionIdx(nextIdx);
+
+    if (nextIdx >= questionsList.length) {
+      handleFinishRapidTurn({ summary: nextSummary, score: nextScore });
+    } else {
+      broadcastCurrentState({
+        status: 'RAPID_ACTIVE',
+        currentRapidIndex: nextIdx,
+        rapidCurrentScore: nextScore,
+        rapidSummary: nextSummary
+      });
+    }
+  }, [quizState, questionsList, rapidQuestionIdx, activeRoundObj, rapidSummary, rapidCurrentScore, handleFinishRapidTurn, broadcastCurrentState]);
+
+  const startRapidRound = useCallback((roundNum = currentRound) => {
+    clearInterval(timerRef.current);
+    if (rapidTimerIntervalRef.current) clearInterval(rapidTimerIntervalRef.current);
+    setCurrentRound(Number(roundNum));
+    setRapidHotSeatPlayer(null);
+    setRapidSelectedWinner(null);
+    setRapidQuestionIdx(0);
+    setRapidCurrentScore(0);
+    setRapidSummary({ correct: 0, wrong: 0, passed: 0 });
+    setQuizState('RAPID_LOBBY');
+
+    broadcastCurrentState({
+      status: 'RAPID_LOBBY',
+      quizState: 'RAPID_LOBBY',
+      round: Number(roundNum),
+      hotSeatPlayerId: null,
+      hotSeatPlayerName: null,
+      currentRapidIndex: 0
+    });
+  }, [currentRound, broadcastCurrentState]);
+
+  const handleSelectWinnerParticipant = useCallback((winner) => {
+    if (!winner) return;
+    const winnerId = typeof winner === 'object' ? winner.id : null;
+    const winnerName = typeof winner === 'object' ? winner.name : String(winner);
+    const matched = participants.find(p => (winnerId && p.id === winnerId) || p.name === winnerName) || (typeof winner === 'object' ? winner : { id: `p_${Date.now()}`, name: winnerName });
+    setRapidSelectedWinner(matched);
+    try {
+      confetti({ particleCount: 50, spread: 60, origin: { y: 0.5 } });
+    } catch (_) {}
+  }, [participants]);
+
+  const handleConfirmHotSeatPlayer = useCallback((playerToConfirm = rapidSelectedWinner) => {
+    if (!playerToConfirm) return;
+    setRapidHotSeatPlayer(playerToConfirm);
+    setRapidSelectedWinner(playerToConfirm);
+    setQuizState('RAPID_READY');
+    broadcastCurrentState({
+      status: 'RAPID_READY',
+      quizState: 'RAPID_READY',
+      hotSeatPlayerId: playerToConfirm.id,
+      hotSeatPlayerName: playerToConfirm.name
+    });
+  }, [rapidSelectedWinner, broadcastCurrentState]);
 
   // Toggle Direct Answer (Host Override for text evaluation)
   const handleToggleDirectAnswer = useCallback((participantId, forceCorrect) => {
@@ -1339,7 +1659,7 @@ export default function QuizLiveHostPage() {
             <div className="pt-1 flex items-center justify-center gap-4 relative z-10">
               <button
                 type="button"
-                onClick={() => startQuestion(0, 1)}
+                onClick={() => activeQuizType === 'rapid_fire' ? startRapidRound(1) : startQuestion(0, 1)}
                 disabled={questionsList.length === 0}
                 className={`py-4 px-8 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center gap-2.5 transition-all shadow-xl ${
                   questionsList.length === 0
@@ -1856,6 +2176,533 @@ export default function QuizLiveHostPage() {
         </div>
       )}
 
+      {/* ===================== STATE: RAPID FIRE LOBBY & WHEEL SELECTION ===================== */}
+      {(quizState === 'RAPID_LOBBY' || quizState === 'RAPID_READY') && (
+        <div className={`space-y-6 max-w-5xl mx-auto w-full py-4 animate-in fade-in duration-200 ${
+          isFullscreen ? 'flex-1 flex flex-col justify-center' : ''
+        }`}>
+          {/* Header Card */}
+          <div className="flex items-center justify-between flex-wrap gap-4 p-6 rounded-3xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-rose-500/10 border-2 border-amber-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-500 flex items-center justify-center font-black">
+                <Zap className="w-6 h-6 fill-amber-500" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    Round {currentRound} of {totalRounds} • Rapid Fire Round
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                    {activeRoundObj?.masterTimeLimit || 60}s Master Timer
+                  </span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-black text-gray-900 dark:text-white">
+                  Hot Seat Participant Selection
+                </h2>
+              </div>
+            </div>
+
+            {/* Mode Switcher Tabs */}
+            <div className="flex items-center p-1 rounded-2xl bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+              <button
+                type="button"
+                onClick={() => setRapidPickerTab('wheel')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  rapidPickerTab === 'wheel'
+                    ? 'bg-white dark:bg-gray-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Dices className="w-4 h-4" />
+                <span>Spinning Wheel</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setRapidPickerTab('manual')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                  rapidPickerTab === 'manual'
+                    ? 'bg-white dark:bg-gray-900 text-amber-600 dark:text-amber-400 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                <Users className="w-4 h-4" />
+                <span>Roster ({eligibleRapidParticipants.length})</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Hot Seat Ready Card (If player is confirmed) */}
+          {quizState === 'RAPID_READY' && rapidHotSeatPlayer && (
+            <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600 text-white shadow-2xl shadow-orange-500/25 space-y-6 text-center animate-in zoom-in-95 duration-200">
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-md text-xs font-black uppercase tracking-wider">
+                <Flame className="w-4 h-4 fill-amber-300 text-amber-300" />
+                Hot Seat Player Ready
+              </div>
+
+              <div className="space-y-2">
+                <h1 className="text-4xl sm:text-6xl font-black tracking-tight">
+                  {rapidHotSeatPlayer.name}
+                </h1>
+                <p className="text-amber-100 text-sm sm:text-base font-semibold max-w-md mx-auto">
+                  {questionsList.length} questions queued with {activeRoundObj?.masterTimeLimit || 60} seconds total countdown.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-center gap-4 pt-2">
+                <button
+                  type="button"
+                  onClick={handleStartRapidTurn}
+                  className="py-4 px-8 rounded-2xl bg-white text-gray-950 font-black text-sm uppercase tracking-wider shadow-2xl hover:scale-105 active:scale-95 cursor-pointer ring-4 ring-white/30 inline-flex items-center gap-3 transition-all"
+                >
+                  <Zap className="w-5 h-5 fill-amber-500 text-amber-500" />
+                  <span>⚡ Start Turn ({activeRoundObj?.masterTimeLimit || 60}s)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuizState('RAPID_LOBBY');
+                    setRapidSelectedWinner(null);
+                  }}
+                  className="py-4 px-6 rounded-2xl bg-black/20 hover:bg-black/30 text-white font-bold text-xs uppercase tracking-wider cursor-pointer border border-white/20 transition-all"
+                >
+                  Change Player
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 1: Spinning Wheel View */}
+          {quizState === 'RAPID_LOBBY' && rapidPickerTab === 'wheel' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+              {/* Wheel Canvas Container */}
+              <div className="lg:col-span-7 flex flex-col items-center">
+                <div className="relative w-full max-w-[min(480px,70vw)] aspect-square flex items-center justify-center p-2 rounded-3xl bg-gradient-to-b from-[#181B2A] to-[#12141F] border border-gray-800 shadow-2xl overflow-hidden">
+                  <WheelCanvas
+                    ref={wheelRef}
+                    participants={
+                      eligibleRapidParticipants.length > 0
+                        ? eligibleRapidParticipants
+                        : participants.length > 0
+                        ? participants
+                        : [{ id: 'empty', name: 'No Participants' }]
+                    }
+                    duration={5}
+                    soundEnabled={soundEnabled}
+                    onSpinStart={() => setIsSpinningWheel(true)}
+                    onSpinEnd={(winner) => {
+                      setIsSpinningWheel(false);
+                      handleSelectWinnerParticipant(winner);
+                    }}
+                    className="w-full h-full"
+                  />
+                </div>
+
+                {/* Spin Trigger Button */}
+                <div className="mt-4 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => wheelRef.current?.spin()}
+                    disabled={isSpinningWheel || (eligibleRapidParticipants.length === 0 && participants.length === 0)}
+                    className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-orange-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
+                  >
+                    <Dices className="w-5 h-5" />
+                    <span>{isSpinningWheel ? 'Spinning...' : 'Spin The Wheel!'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Side Status & Confirmation Panel */}
+              <div className="lg:col-span-5 space-y-4">
+                {rapidSelectedWinner ? (
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#161925] border-2 border-amber-500/50 shadow-xl space-y-4 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto text-2xl font-black">
+                      🎯
+                    </div>
+                    <div>
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-500">
+                        Winner Selected!
+                      </span>
+                      <h3 className="text-3xl font-black text-gray-900 dark:text-white mt-1">
+                        {rapidSelectedWinner.name}
+                      </h3>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Ready to take the hot seat. Click confirm to proceed!
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleConfirmHotSeatPlayer(rapidSelectedWinner)}
+                      className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-orange-500/30 hover:scale-102 active:scale-98 transition-all cursor-pointer inline-flex items-center justify-center gap-2"
+                    >
+                      <Zap className="w-4 h-4 fill-white" />
+                      <span>Confirm {rapidSelectedWinner.name} for Hot Seat</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-center space-y-2">
+                    <p className="text-sm font-bold text-gray-700 dark:text-gray-300">
+                      🎡 Spin the wheel to pick the next player!
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      {eligibleRapidParticipants.length} of {participants.length} participants remaining to take the hot seat.
+                    </p>
+                  </div>
+                )}
+
+                {/* Remaining list quick preview */}
+                <div className="p-4 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 space-y-2 max-h-60 overflow-y-auto">
+                  <div className="text-[11px] font-black uppercase tracking-wider text-gray-400 px-1">
+                    Eligible Candidates ({eligibleRapidParticipants.length})
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {eligibleRapidParticipants.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => handleConfirmHotSeatPlayer(p)}
+                        className="px-2.5 py-1 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-950/40 hover:text-amber-600 border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 transition-colors cursor-pointer"
+                        title="Click to directly select for Hot Seat"
+                      >
+                        {p.name}
+                      </button>
+                    ))}
+                    {eligibleRapidParticipants.length === 0 && (
+                      <span className="text-xs text-gray-400 italic">All participants have completed their turn!</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tab 2: Manual Selection Roster View */}
+          {quizState === 'RAPID_LOBBY' && rapidPickerTab === 'manual' && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                {participants.map(p => {
+                  const hasCompleted = rapidCompletedPlayerIds.includes(p.id);
+                  const isSelected = rapidSelectedWinner?.id === p.id;
+                  return (
+                    <div
+                      key={p.id}
+                      onClick={() => {
+                        if (!hasCompleted) {
+                          setRapidSelectedWinner(p);
+                        }
+                      }}
+                      className={`p-4 rounded-2xl border text-left transition-all ${
+                        hasCompleted
+                          ? 'bg-gray-100 dark:bg-gray-900 border-gray-200 dark:border-gray-800 opacity-60 cursor-not-allowed'
+                          : isSelected
+                          ? 'bg-amber-50 dark:bg-amber-950/40 border-2 border-amber-500 shadow-md cursor-pointer'
+                          : 'bg-white dark:bg-[#161925] border-gray-200 dark:border-gray-800 hover:border-amber-400 cursor-pointer shadow-xs'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-sm text-gray-900 dark:text-white truncate">
+                          {p.name}
+                        </span>
+                        {hasCompleted ? (
+                          <span className="text-[10px] font-black uppercase text-gray-400 px-2 py-0.5 rounded-full bg-gray-200 dark:bg-gray-800">
+                            Played
+                          </span>
+                        ) : isSelected ? (
+                          <span className="text-[10px] font-black uppercase text-amber-600 px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/50">
+                            Chosen
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-black uppercase text-emerald-600 px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/50">
+                            Waiting
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        Score: <span className="font-bold text-gray-800 dark:text-gray-200">{p.score || 0} pts</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {rapidSelectedWinner && !rapidCompletedPlayerIds.includes(rapidSelectedWinner.id) && (
+                <div className="flex items-center justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleConfirmHotSeatPlayer(rapidSelectedWinner)}
+                    className="py-3.5 px-8 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-600 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-orange-500/30 hover:scale-105 active:scale-95 transition-all cursor-pointer inline-flex items-center gap-2"
+                  >
+                    <Zap className="w-4 h-4 fill-white" />
+                    <span>Confirm {rapidSelectedWinner.name} for Hot Seat</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===================== STATE: RAPID FIRE ACTIVE ARENA ===================== */}
+      {quizState === 'RAPID_ACTIVE' && (
+        <div className={`space-y-6 max-w-5xl mx-auto w-full py-4 animate-in fade-in duration-200 ${
+          isFullscreen ? 'flex-1 flex flex-col justify-center' : ''
+        }`}>
+          {/* Top Bar: Hot Seat Player & Master Countdown Timer */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+            {/* Hot Seat Profile Card */}
+            <div className="md:col-span-7 flex items-center gap-3.5 p-4 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-sm">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center font-black text-lg shadow-md">
+                <Zap className="w-6 h-6 fill-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-500">
+                    🔥 Hot Seat
+                  </span>
+                  <span className="text-xs font-bold text-gray-400">
+                    Question {rapidQuestionIdx + 1} of {questionsList.length}
+                  </span>
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white truncate">
+                  {rapidHotSeatPlayer?.name}
+                </h3>
+              </div>
+
+              {/* Running Score Pill */}
+              <div className="text-right px-3 py-1.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60">
+                <div className="text-[10px] font-black text-gray-400 uppercase">Turn Score</div>
+                <div className="text-xl font-black text-amber-600 dark:text-amber-400">
+                  {rapidCurrentScore >= 0 ? `+${rapidCurrentScore}` : rapidCurrentScore}
+                </div>
+              </div>
+            </div>
+
+            {/* Giant Master Countdown Timer */}
+            <div className="md:col-span-5 flex items-center justify-between gap-4 p-4 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black ${
+                  rapidTimer <= 10
+                    ? 'bg-rose-500 text-white animate-pulse'
+                    : rapidTimer <= 20
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-emerald-500 text-white'
+                }`}>
+                  <Clock className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="text-[10px] font-black text-gray-400 uppercase tracking-wider">Master Timer</div>
+                  <div className={`text-2xl sm:text-3xl font-black font-mono ${
+                    rapidTimer <= 10 ? 'text-rose-600 dark:text-rose-400' : 'text-gray-900 dark:text-white'
+                  }`}>
+                    {rapidTimer}s
+                  </div>
+                </div>
+              </div>
+
+              {/* Host Emergency Controls */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleHostSkipRapidQuestion}
+                  className="px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Force pass current question"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  <span>Skip</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFinishRapidTurn()}
+                  className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-900/60 text-xs font-black transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Stop turn immediately"
+                >
+                  <Square className="w-3.5 h-3.5 fill-rose-600 dark:fill-rose-400" />
+                  <span>End Turn</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Question Progression Dots */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-2">
+            {questionsList.map((_, idx) => {
+              const isPast = idx < rapidQuestionIdx;
+              const isCurrent = idx === rapidQuestionIdx;
+              return (
+                <div
+                  key={idx}
+                  className={`h-2 rounded-full transition-all flex-1 min-w-[20px] ${
+                    isCurrent
+                      ? 'bg-amber-500 scale-y-125'
+                      : isPast
+                      ? 'bg-emerald-500'
+                      : 'bg-gray-200 dark:bg-gray-800'
+                  }`}
+                  title={`Question ${idx + 1}`}
+                />
+              );
+            })}
+          </div>
+
+          {/* Active Question Display Card for Host */}
+          {questionsList[rapidQuestionIdx] && (
+            <div className="p-6 sm:p-8 rounded-3xl bg-white dark:bg-[#161925] border-2 border-amber-500/30 shadow-xl space-y-6">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-500 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
+                  Question {rapidQuestionIdx + 1}
+                </span>
+                <div className="flex items-center gap-2 text-xs font-bold text-gray-400">
+                  <span>+{questionsList[rapidQuestionIdx].marks || activeRoundObj?.defaultMarks || 10} pts</span>
+                  <span>•</span>
+                  <span>-{questionsList[rapidQuestionIdx].penaltyMarks || activeRoundObj?.defaultPenaltyMarks || 2} wrong</span>
+                </div>
+              </div>
+
+              {/* Media viewer if attached */}
+              {questionsList[rapidQuestionIdx].mediaUrl && (
+                <div className="max-w-md mx-auto">
+                  <MediaViewer
+                    mediaUrl={questionsList[rapidQuestionIdx].mediaUrl}
+                    mediaType={questionsList[rapidQuestionIdx].mediaType || 'image'}
+                  />
+                </div>
+              )}
+
+              {/* Question Statement */}
+              <h2 className="text-2xl sm:text-4xl font-black text-gray-900 dark:text-white text-center leading-tight">
+                {questionsList[rapidQuestionIdx].question || questionsList[rapidQuestionIdx].text}
+              </h2>
+
+              {/* Target Answer / Options Preview */}
+              <div className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-900/60 border border-gray-200 dark:border-gray-800 space-y-2">
+                <div className="text-[11px] font-black uppercase text-gray-400">Expected Correct Answer:</div>
+                <div className="text-base font-black text-emerald-600 dark:text-emerald-400">
+                  {questionsList[rapidQuestionIdx].correct_answer || questionsList[rapidQuestionIdx].answer ||
+                    (questionsList[rapidQuestionIdx].options?.[getCorrectOptionIndex(questionsList[rapidQuestionIdx])]) ||
+                    'N/A'}
+                </div>
+                {(questionsList[rapidQuestionIdx].alternativeAnswers?.length > 0 || questionsList[rapidQuestionIdx].acceptableAnswers?.length > 0) && (
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-semibold">Alternative acceptable: </span>
+                    {(questionsList[rapidQuestionIdx].alternativeAnswers || questionsList[rapidQuestionIdx].acceptableAnswers).join(', ')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Turn Stats Summary Pill Bar */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-center">
+              <div className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-300">Correct</div>
+              <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{rapidSummary.correct}</div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 text-center">
+              <div className="text-[10px] font-black uppercase text-rose-700 dark:text-rose-300">Wrong</div>
+              <div className="text-2xl font-black text-rose-600 dark:text-rose-400">{rapidSummary.wrong}</div>
+            </div>
+            <div className="p-3.5 rounded-2xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-center">
+              <div className="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400">Passed</div>
+              <div className="text-2xl font-black text-gray-700 dark:text-gray-300">{rapidSummary.passed}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== STATE: RAPID TURN FINISHED ===================== */}
+      {quizState === 'RAPID_TURN_FINISHED' && (
+        <div className={`space-y-6 max-w-3xl mx-auto w-full py-6 text-center animate-in zoom-in-95 duration-200 ${
+          isFullscreen ? 'flex-1 flex flex-col justify-center' : ''
+        }`}>
+          <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-br from-[#1E1B4B] via-[#2A1B6B] to-[#161435] border-2 border-amber-500/40 text-white shadow-2xl shadow-indigo-950/60 space-y-6">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-3xl font-black">
+              ⚡
+            </div>
+
+            <div className="space-y-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black uppercase tracking-wider">
+                Turn Finished
+              </div>
+              <h1 className="text-3xl sm:text-5xl font-black">
+                {rapidHotSeatPlayer?.name}
+              </h1>
+              <p className="text-violet-200 text-sm font-semibold max-w-md mx-auto">
+                Rapid fire turn complete! Results have been recorded on the live leaderboard.
+              </p>
+            </div>
+
+            {/* Score & Breakdown Cards */}
+            <div className="grid grid-cols-4 gap-3 max-w-lg mx-auto pt-2">
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[10px] font-black uppercase opacity-75">Points</div>
+                <div className="text-2xl sm:text-3xl font-black text-amber-300">
+                  {rapidCurrentScore >= 0 ? `+${rapidCurrentScore}` : rapidCurrentScore}
+                </div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[10px] font-black uppercase opacity-75">Correct</div>
+                <div className="text-2xl sm:text-3xl font-black text-emerald-400">{rapidSummary.correct}</div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[10px] font-black uppercase opacity-75">Wrong</div>
+                <div className="text-2xl sm:text-3xl font-black text-rose-400">{rapidSummary.wrong}</div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[10px] font-black uppercase opacity-75">Passed</div>
+                <div className="text-2xl sm:text-3xl font-black text-gray-300">{rapidSummary.passed}</div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setRapidHotSeatPlayer(null);
+                  setRapidSelectedWinner(null);
+                  setQuizState('RAPID_LOBBY');
+                  broadcastCurrentState({
+                    status: 'RAPID_LOBBY',
+                    quizState: 'RAPID_LOBBY',
+                    hotSeatPlayerId: null,
+                    hotSeatPlayerName: null,
+                    currentRapidIndex: 0
+                  });
+                }}
+                className="py-3.5 px-6 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white font-black text-xs uppercase tracking-wider shadow-xl shadow-orange-500/30 hover:scale-105 active:scale-95 cursor-pointer inline-flex items-center gap-2 transition-all"
+              >
+                <Users className="w-4 h-4" />
+                <span>Select Next Participant ➔</span>
+              </button>
+
+              {hasNextRound ? (
+                <button
+                  type="button"
+                  onClick={handleProceedToNextRound}
+                  className="py-3.5 px-6 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-black text-xs uppercase tracking-wider border border-white/20 cursor-pointer inline-flex items-center gap-2 transition-all"
+                >
+                  <span>Next Round ({currentRound + 1}) ➔</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuizState('FINISHED');
+                    saveParticipantsToDb(participants, true, true);
+                    broadcastCurrentState({ status: 'FINISHED', participants });
+                    try { confetti({ particleCount: 150, spread: 100 }); } catch (_) {}
+                  }}
+                  className="py-3.5 px-6 rounded-2xl bg-white/20 hover:bg-white/30 text-white font-black text-xs uppercase tracking-wider border border-white/20 cursor-pointer inline-flex items-center gap-2 transition-all"
+                >
+                  <Trophy className="w-4 h-4" />
+                  <span>Finish Quiz & Leaderboard ➔</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ===================== STATE 4: LEADERBOARD ===================== */}
       {quizState === 'LEADERBOARD' && (
         <div className={`space-y-6 max-w-4xl mx-auto w-full py-4 animate-in fade-in duration-200 ${
@@ -1940,7 +2787,7 @@ export default function QuizLiveHostPage() {
             <div className="pt-2 flex items-center justify-center gap-4">
               <button
                 type="button"
-                onClick={() => startQuestion(0, currentRound)}
+                onClick={() => activeQuizType === 'rapid_fire' ? startRapidRound(currentRound) : startQuestion(0, currentRound)}
                 disabled={questionsList.length === 0}
                 className="py-4 px-8 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-violet-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-sm uppercase tracking-wider shadow-xl shadow-violet-600/40 hover:scale-105 active:scale-95 cursor-pointer ring-2 ring-white/20 inline-flex items-center gap-2.5 transition-all"
               >
@@ -2157,6 +3004,26 @@ export default function QuizLiveHostPage() {
         onCancel={() => setIsResetDialogOpen(false)}
         onClose={() => setIsResetDialogOpen(false)}
       />
+
+      {/* Floating Reactions Overlay */}
+      {reactions.length > 0 && (
+        <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+          {reactions.map((r) => (
+            <div
+              key={r.id}
+              style={{ left: `${r.x}%` }}
+              className="absolute bottom-16 -translate-x-1/2 flex flex-col items-center animate-float-fade"
+            >
+              <span className="text-4xl filter drop-shadow-md select-none">{r.emoji}</span>
+              {r.senderName && (
+                <span className="text-[10px] font-black text-white bg-black/60 px-2 py-0.5 rounded-full mt-1 backdrop-blur-xs">
+                  {r.senderName}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

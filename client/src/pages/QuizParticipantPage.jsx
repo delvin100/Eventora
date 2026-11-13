@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useSearchParams, Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import {
@@ -19,7 +19,11 @@ import {
   BarChart3,
   Send,
   Loader2,
-  Ban
+  Ban,
+  Zap,
+  FastForward,
+  Flame,
+  Dices
 } from 'lucide-react';
 import EventoraLogo from '../components/EventoraLogo';
 import { quizRealtimeService } from '../services/quizRealtimeService';
@@ -228,6 +232,21 @@ export default function QuizParticipantPage() {
   const [showStandingsModal, setShowStandingsModal] = useState(false);
   const endTimeRef = useRef(null);
   const scoredQuestionsRef = useRef(new Set(savedSession?.scoredQuestions || []));
+
+  // Rapid Fire Round States
+  const [localRapidIdx, setLocalRapidIdx] = useState(0);
+  const [rapidTextAnswer, setRapidTextAnswer] = useState('');
+  const [rapidMasterTimer, setRapidMasterTimer] = useState(60);
+  const [reactions, setReactions] = useState([]);
+
+  const addFloatingReaction = useCallback((emoji, senderName = '') => {
+    const id = `${Date.now()}_${Math.random()}`;
+    const x = Math.floor(Math.random() * 80) + 10;
+    setReactions((prev) => [...prev.slice(-25), { id, emoji, senderName, x }]);
+    setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 2400);
+  }, []);
 
   // Sync state to sessionStorage whenever key participant data changes
   useEffect(() => {
@@ -630,8 +649,20 @@ export default function QuizParticipantPage() {
           }
         }
 
+        if (data.status === 'RAPID_LOBBY' || data.status === 'RAPID_READY') {
+          setLocalRapidIdx(0);
+          setRapidTextAnswer('');
+        }
+
         return { ...prev, ...data };
       });
+    });
+
+    // Listen for floating reactions in arena
+    const unsubEmoji = quizRealtimeService.on('EMOJI_REACTION', (data) => {
+      if (data?.emoji) {
+        addFloatingReaction(data.emoji, data.senderName);
+      }
     });
 
     // Listen for synchronous timer ticks from the Host
@@ -758,8 +789,9 @@ export default function QuizParticipantPage() {
       unsubKick();
       unsubLobbyCleared();
       unsubReset();
+      unsubEmoji();
     };
-  }, [hasJoined, pin, playerId, playerName, answersMap, roomState.questionNumber, roomState.round]);
+  }, [hasJoined, pin, playerId, playerName, answersMap, roomState.questionNumber, roomState.round, addFloatingReaction]);
 
   // Synchronized countdown fallback between host ticks
   useEffect(() => {
@@ -773,6 +805,58 @@ export default function QuizParticipantPage() {
 
     return () => clearInterval(timer);
   }, [roomState.status]);
+
+  // Synchronized countdown for Rapid Fire Master Timer
+  useEffect(() => {
+    if (roomState.status === 'RAPID_ACTIVE' && roomState.masterEndTime) {
+      const updateTimer = () => {
+        const remaining = Math.max(0, Math.ceil((roomState.masterEndTime - Date.now()) / 1000));
+        setRapidMasterTimer(remaining);
+      };
+      updateTimer();
+      const interval = setInterval(updateTimer, 250);
+      return () => clearInterval(interval);
+    }
+  }, [roomState.status, roomState.masterEndTime]);
+
+  // Hot Seat Participant Submission (Zero-lag optimistic instant transition)
+  const handleHotSeatSubmit = useCallback((answerData) => {
+    const questions = roomState.rapidQuestions || [];
+    if (localRapidIdx >= questions.length) return;
+    const currentQ = questions[localRapidIdx];
+    if (!currentQ) return;
+
+    const payload = {
+      pin,
+      participantId: playerId,
+      participantName: playerName,
+      questionIndex: localRapidIdx,
+      action: answerData.action || 'answer',
+      textAnswer: answerData.textAnswer || '',
+      selectedOptionIndex: answerData.selectedOptionIndex !== undefined ? answerData.selectedOptionIndex : null,
+      submittedAt: Date.now()
+    };
+
+    // Instant local progression to next question!
+    setLocalRapidIdx((prev) => prev + 1);
+    setRapidTextAnswer('');
+
+    // Broadcast to server in background
+    quizRealtimeService.submitRapidAnswer(payload);
+  }, [localRapidIdx, roomState.rapidQuestions, pin, playerId, playerName]);
+
+  const handleHotSeatPass = useCallback(() => {
+    handleHotSeatSubmit({ action: 'pass' });
+  }, [handleHotSeatSubmit]);
+
+  const handleSendReaction = useCallback((emoji) => {
+    addFloatingReaction(emoji, playerName);
+    quizRealtimeService.sendEmojiReaction({
+      pin,
+      senderName: playerName,
+      emoji
+    });
+  }, [addFloatingReaction, pin, playerName]);
 
   // Submit MCQ Answer
   const handleSelectOption = (optIdx) => {
@@ -1077,6 +1161,540 @@ export default function QuizParticipantPage() {
         </div>
       </div>
     );
+  }
+
+  // =========================================================================
+  // VIEW: RAPID FIRE ROUND (Dual-Mode: Hot Seat vs Spectator Arena)
+  // =========================================================================
+  if (roomState.isRapidRound || roomState.status?.startsWith('RAPID_')) {
+    const isHotSeat = playerId === roomState.hotSeatPlayerId;
+    const questions = Array.isArray(roomState.rapidQuestions) ? roomState.rapidQuestions : [];
+    const masterLimit = Number(roomState.masterTimeLimit) || 60;
+    const timerPercent = Math.min(100, Math.max(0, (rapidMasterTimer / masterLimit) * 100));
+
+    // SUB-VIEW 1: RAPID LOBBY (Quiz Master selecting player)
+    if (roomState.status === 'RAPID_LOBBY') {
+      return (
+        <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] flex flex-col justify-between p-4 max-w-md mx-auto">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Round {roomState.round || 1} • Rapid Fire
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-mono font-bold text-gray-400">PIN: {pin}</span>
+              <button
+                type="button"
+                onClick={handleLeaveArena}
+                className="text-xs text-rose-500 hover:text-rose-600 font-bold cursor-pointer"
+              >
+                Leave
+              </button>
+            </div>
+          </div>
+
+          {/* Center Card */}
+          <div className="rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 p-8 text-center space-y-5 shadow-sm my-auto animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-amber-500 to-orange-600 text-white flex items-center justify-center mx-auto text-2xl font-black shadow-lg shadow-orange-500/25">
+              <Zap className="w-8 h-8 fill-white" />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs font-extrabold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                ⚡ Rapid Fire Round
+              </span>
+              <h2 className="text-2xl font-black text-gray-900 dark:text-white">
+                Selecting Hot Seat Player
+              </h2>
+              <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xs mx-auto">
+                The Quiz Master is spinning the wheel to pick the next player to take the hot seat!
+              </p>
+            </div>
+
+            {/* Profile Pill */}
+            <div className="p-4 rounded-2xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-left">
+                <div className="text-[10px] font-black uppercase text-gray-400">Player</div>
+                <div className="font-black text-sm text-gray-900 dark:text-white">{playerName}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] font-black uppercase text-gray-400">Total Score</div>
+                <div className="font-black text-base text-violet-600 dark:text-violet-400">{totalScore} pts</div>
+              </div>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 text-xs font-bold animate-pulse">
+              <Dices className="w-4 h-4 text-amber-500" />
+              <span>Spinning the wheel... Stay ready!</span>
+            </div>
+          </div>
+
+          {/* Footer Branding */}
+          <div className="text-center py-4 text-[11px] text-gray-400">
+            Powered by Eventora
+          </div>
+        </div>
+      );
+    }
+
+    // SUB-VIEW 2: RAPID READY (Player confirmed, waiting to start countdown)
+    if (roomState.status === 'RAPID_READY') {
+      return (
+        <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] flex flex-col justify-between p-4 max-w-md mx-auto">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Hot Seat Ready
+              </span>
+            </div>
+            <span className="text-xs font-mono font-bold text-gray-400">PIN: {pin}</span>
+          </div>
+
+          {/* Center Card */}
+          <div className={`rounded-3xl p-8 text-center space-y-6 shadow-xl my-auto animate-in zoom-in-95 duration-200 ${
+            isHotSeat
+              ? 'bg-gradient-to-br from-amber-500 via-orange-500 to-rose-600 text-white shadow-orange-500/30'
+              : 'bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800'
+          }`}>
+            <div className={`w-20 h-20 rounded-3xl flex items-center justify-center mx-auto text-3xl font-black shadow-lg ${
+              isHotSeat ? 'bg-white/20 text-white' : 'bg-amber-500/10 text-amber-500'
+            }`}>
+              {isHotSeat ? <Flame className="w-10 h-10 fill-white" /> : <Zap className="w-10 h-10 fill-amber-500" />}
+            </div>
+
+            <div className="space-y-2">
+              <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider ${
+                isHotSeat ? 'bg-white/20 text-white' : 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+              }`}>
+                {isHotSeat ? '🔥 You Are Selected!' : 'Hot Seat Locked'}
+              </div>
+
+              <h1 className={`text-3xl sm:text-4xl font-black ${isHotSeat ? 'text-white' : 'text-gray-900 dark:text-white'}`}>
+                {isHotSeat ? "You're in the Hot Seat!" : `${roomState.hotSeatPlayerName} is in the Hot Seat!`}
+              </h1>
+
+              <p className={`text-xs sm:text-sm font-semibold max-w-xs mx-auto ${isHotSeat ? 'text-amber-100' : 'text-gray-500 dark:text-gray-400'}`}>
+                {isHotSeat
+                  ? `Get ready! You will have ${masterLimit} seconds. Questions transition instantly upon answering or passing!`
+                  : `Get ready to watch ${roomState.hotSeatPlayerName} tackle questions under pressure!`}
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-2xl text-xs font-bold inline-flex items-center gap-2 animate-pulse ${
+              isHotSeat ? 'bg-black/20 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}>
+              <Clock className="w-4 h-4" />
+              <span>Waiting for Quiz Master to start the {masterLimit}s countdown...</span>
+            </div>
+          </div>
+
+          {/* Footer Branding */}
+          <div className="text-center py-4 text-[11px] text-gray-400">
+            Powered by Eventora
+          </div>
+        </div>
+      );
+    }
+
+    // SUB-VIEW 3: RAPID ACTIVE (Dual-Mode: Hot Seat vs Spectator)
+    if (roomState.status === 'RAPID_ACTIVE') {
+      // MODE A: HOT SEAT PLAYER (Optimistic Zero-Latency Game Interface)
+      if (isHotSeat) {
+        const currentQ = questions[localRapidIdx];
+        const isFinishedAll = localRapidIdx >= questions.length;
+
+        return (
+          <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] flex flex-col justify-between p-4 max-w-2xl w-full mx-auto space-y-4">
+            {/* Top Giant Countdown Clock Bar */}
+            <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#161925] border-2 border-amber-500/40 shadow-lg space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-rose-500 animate-ping" />
+                  <span className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                    🔥 Rapid Turn Active
+                  </span>
+                </div>
+                <div className="text-xs font-bold text-gray-400">
+                  Question {Math.min(localRapidIdx + 1, questions.length)} of {questions.length}
+                </div>
+              </div>
+
+              {/* Master Digital Clock & Progress Bar */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1">
+                  <div className="h-3 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                    <div
+                      style={{ width: `${timerPercent}%` }}
+                      className={`h-full transition-all duration-200 rounded-full ${
+                        rapidMasterTimer <= 10
+                          ? 'bg-rose-500'
+                          : rapidMasterTimer <= 20
+                          ? 'bg-amber-500'
+                          : 'bg-emerald-500'
+                      }`}
+                    />
+                  </div>
+                </div>
+                <div className={`text-3xl sm:text-4xl font-black font-mono shrink-0 ${
+                  rapidMasterTimer <= 10
+                    ? 'text-rose-600 dark:text-rose-400 animate-pulse'
+                    : rapidMasterTimer <= 20
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                }`}>
+                  {rapidMasterTimer}s
+                </div>
+              </div>
+            </div>
+
+            {/* Active Question Card for Hot Seat */}
+            {!isFinishedAll && currentQ ? (
+              <div className="flex-1 flex flex-col justify-center space-y-5 p-6 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xl animate-in fade-in duration-100">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-black uppercase text-amber-500 px-3 py-1 rounded-full bg-amber-500/10">
+                    Question {localRapidIdx + 1}
+                  </span>
+                  <div className="text-xs font-bold text-gray-400">
+                    +{currentQ.marks || 10} pts • -{currentQ.penaltyMarks || 2} wrong
+                  </div>
+                </div>
+
+                {/* Media preview */}
+                {currentQ.mediaUrl && (
+                  <div className="max-w-xs mx-auto">
+                    <MediaViewer mediaUrl={currentQ.mediaUrl} mediaType={currentQ.mediaType || 'image'} />
+                  </div>
+                )}
+
+                {/* Question Statement */}
+                <h2 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white text-center leading-snug">
+                  {currentQ.question || currentQ.text}
+                </h2>
+
+                {/* Answer Options: Direct Q&A or MCQ */}
+                {(currentQ.format === 'direct' || currentQ.questionType === 'direct' || (!currentQ.options?.length && currentQ.answer !== undefined)) ? (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (rapidTextAnswer.trim()) {
+                        handleHotSeatSubmit({ textAnswer: rapidTextAnswer });
+                      }
+                    }}
+                    className="space-y-3 pt-2"
+                  >
+                    <input
+                      autoFocus
+                      type="text"
+                      value={rapidTextAnswer}
+                      onChange={(e) => setRapidTextAnswer(e.target.value)}
+                      placeholder="Type your answer and press Enter..."
+                      className="w-full py-4 px-5 rounded-2xl bg-gray-50 dark:bg-gray-800/80 border-2 border-violet-500/40 focus:border-violet-600 dark:focus:border-violet-400 text-lg font-black text-gray-900 dark:text-white shadow-inner focus:outline-none focus:ring-4 focus:ring-violet-500/20 text-center transition-all"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!rapidTextAnswer.trim()}
+                      className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-violet-600/30 hover:scale-101 active:scale-98 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Submit Answer ➔
+                    </button>
+                  </form>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                    {Array.isArray(currentQ.options) && currentQ.options.map((opt, optIdx) => {
+                      const optText = typeof opt === 'object' ? (opt.text || opt.title || '') : String(opt);
+                      const colorConfig = OPTION_COLORS[optIdx % OPTION_COLORS.length];
+                      return (
+                        <button
+                          key={optIdx}
+                          type="button"
+                          onClick={() => handleHotSeatSubmit({ selectedOptionIndex: optIdx })}
+                          className={`p-4 rounded-2xl border-2 text-left font-bold transition-all hover:scale-101 active:scale-98 cursor-pointer flex items-center gap-3 shadow-xs ${colorConfig.card}`}
+                        >
+                          <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0 ${colorConfig.badge}`}>
+                            {OPTION_LETTERS[optIdx]}
+                          </span>
+                          <span className="text-sm font-black text-gray-900 dark:text-white flex-1">{optText}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Pass / Skip Button */}
+                {roomState.allowPass !== false && (
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleHotSeatPass}
+                      className="w-full py-3.5 rounded-2xl bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs hover:scale-101 active:scale-98"
+                    >
+                      <FastForward className="w-4 h-4" />
+                      <span>⚡ Pass / Skip Question</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-8 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-center space-y-3 my-auto shadow-sm">
+                <div className="text-4xl">🎉</div>
+                <h3 className="text-2xl font-black text-gray-900 dark:text-white">All Questions Answered!</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Incredible speed! Waiting for the master timer to expire to tally your final round score.
+                </p>
+              </div>
+            )}
+
+            {/* Floating Reactions Overlay */}
+            {reactions.length > 0 && (
+              <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+                {reactions.map((r) => (
+                  <div
+                    key={r.id}
+                    style={{ left: `${r.x}%` }}
+                    className="absolute bottom-20 -translate-x-1/2 flex flex-col items-center animate-float-fade"
+                  >
+                    <span className="text-4xl filter drop-shadow-md select-none">{r.emoji}</span>
+                    {r.senderName && (
+                      <span className="text-[10px] font-black text-white bg-black/60 px-2 py-0.5 rounded-full mt-1 backdrop-blur-xs">
+                        {r.senderName}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // MODE B: SPECTATOR ARENA (Live view of hot seat player + floating emojis)
+      const specQ = questions[roomState.currentRapidIndex || 0];
+
+      return (
+        <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] flex flex-col justify-between p-4 max-w-2xl w-full mx-auto space-y-4">
+          {/* Top Banner: Hot Seat Player & Master Timer */}
+          <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-md space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+                <span className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                  🔥 {roomState.hotSeatPlayerName} in Hot Seat
+                </span>
+              </div>
+              <div className="text-xs font-bold text-gray-400">
+                Question {(roomState.currentRapidIndex || 0) + 1} of {roomState.totalRapidQuestions || questions.length}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1">
+                <div className="h-3 w-full rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                  <div
+                    style={{ width: `${timerPercent}%` }}
+                    className={`h-full transition-all duration-200 rounded-full ${
+                      rapidMasterTimer <= 10
+                        ? 'bg-rose-500'
+                        : rapidMasterTimer <= 20
+                        ? 'bg-amber-500'
+                        : 'bg-emerald-500'
+                    }`}
+                  />
+                </div>
+              </div>
+              <div className={`text-2xl sm:text-3xl font-black font-mono shrink-0 ${
+                rapidMasterTimer <= 10
+                  ? 'text-rose-600 dark:text-rose-400 animate-pulse'
+                  : rapidMasterTimer <= 20
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              }`}>
+                {rapidMasterTimer}s
+              </div>
+            </div>
+          </div>
+
+          {/* Running Score & Live Breakdown Card */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-center">
+              <div className="text-[10px] font-black uppercase text-amber-700 dark:text-amber-300">Score</div>
+              <div className="text-xl font-black text-amber-600 dark:text-amber-400">
+                {(roomState.rapidCurrentScore || 0) >= 0 ? `+${roomState.rapidCurrentScore || 0}` : roomState.rapidCurrentScore}
+              </div>
+            </div>
+            <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 text-center">
+              <div className="text-[10px] font-black uppercase text-emerald-700 dark:text-emerald-300">Correct</div>
+              <div className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                {roomState.rapidSummary?.correct || 0}
+              </div>
+            </div>
+            <div className="p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/50 text-center">
+              <div className="text-[10px] font-black uppercase text-rose-700 dark:text-rose-300">Wrong</div>
+              <div className="text-xl font-black text-rose-600 dark:text-rose-400">
+                {roomState.rapidSummary?.wrong || 0}
+              </div>
+            </div>
+            <div className="p-3 rounded-2xl bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-center">
+              <div className="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400">Passed</div>
+              <div className="text-xl font-black text-gray-700 dark:text-gray-300">
+                {roomState.rapidSummary?.passed || 0}
+              </div>
+            </div>
+          </div>
+
+          {/* Spectator Question Monitor */}
+          {specQ && (
+            <div className="flex-1 flex flex-col justify-center p-6 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-md space-y-4">
+              <div className="text-xs font-black uppercase tracking-wider text-amber-500">
+                Active Question
+              </div>
+              {specQ.mediaUrl && (
+                <div className="max-w-xs mx-auto">
+                  <MediaViewer mediaUrl={specQ.mediaUrl} mediaType={specQ.mediaType || 'image'} />
+                </div>
+              )}
+              <h3 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white text-center leading-snug">
+                {specQ.question || specQ.text}
+              </h3>
+              {Array.isArray(specQ.options) && specQ.options.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  {specQ.options.map((opt, i) => (
+                    <div
+                      key={i}
+                      className="p-3 rounded-xl bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 text-xs font-semibold text-gray-800 dark:text-gray-200 truncate"
+                    >
+                      <span className="font-bold text-gray-400 mr-2">{OPTION_LETTERS[i]}.</span>
+                      <span>{typeof opt === 'object' ? opt.text : String(opt)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Interactive Cheering Reaction Bar */}
+          <div className="p-4 rounded-3xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-lg space-y-2">
+            <div className="text-[11px] font-black uppercase tracking-wider text-gray-400 text-center">
+              Cheer on {roomState.hotSeatPlayerName}! Tap to react:
+            </div>
+            <div className="flex items-center justify-center gap-3 sm:gap-4 flex-wrap">
+              {['👏', '🔥', '⚡', '🤯', '❤️', '🚀'].map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleSendReaction(emoji)}
+                  className="w-12 h-12 rounded-2xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800/70 dark:hover:bg-gray-700 text-2xl flex items-center justify-center hover:scale-125 active:scale-95 transition-all cursor-pointer shadow-xs"
+                  title={`Send ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Floating Reactions Overlay */}
+          {reactions.length > 0 && (
+            <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
+              {reactions.map((r) => (
+                <div
+                  key={r.id}
+                  style={{ left: `${r.x}%` }}
+                  className="absolute bottom-20 -translate-x-1/2 flex flex-col items-center animate-float-fade"
+                >
+                  <span className="text-4xl filter drop-shadow-md select-none">{r.emoji}</span>
+                  {r.senderName && (
+                    <span className="text-[10px] font-black text-white bg-black/60 px-2 py-0.5 rounded-full mt-1 backdrop-blur-xs">
+                      {r.senderName}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // SUB-VIEW 4: RAPID TURN FINISHED
+    if (roomState.status === 'RAPID_TURN_FINISHED') {
+      return (
+        <div className="min-h-screen bg-[#F7F8FC] dark:bg-[#0F1117] flex flex-col justify-between p-4 max-w-md mx-auto">
+          {/* Top Bar */}
+          <div className="flex items-center justify-between p-3 rounded-2xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-violet-500" />
+              <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                Turn Finished
+              </span>
+            </div>
+            <span className="text-xs font-mono font-bold text-gray-400">PIN: {pin}</span>
+          </div>
+
+          {/* Center Card */}
+          <div className="rounded-3xl bg-gradient-to-br from-[#1E1B4B] via-[#2A1B6B] to-[#161435] border-2 border-amber-500/40 text-white p-8 text-center space-y-6 shadow-2xl my-auto animate-in zoom-in-95 duration-200">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto text-3xl font-black">
+              ⚡
+            </div>
+
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-black uppercase tracking-wider">
+                Turn Complete
+              </div>
+              <h2 className="text-3xl font-black">
+                {roomState.hotSeatPlayerName}
+              </h2>
+              <p className="text-xs text-violet-200 font-semibold max-w-xs mx-auto">
+                {isHotSeat
+                  ? "Outstanding effort! Your rapid fire turn has finished and results are recorded."
+                  : "Hot seat turn complete! Quiz Master will proceed shortly."}
+              </p>
+            </div>
+
+            {/* Score & Breakdown */}
+            <div className="grid grid-cols-4 gap-2">
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[9px] font-black uppercase opacity-75">Points</div>
+                <div className="text-xl font-black text-amber-300">
+                  {(roomState.rapidCurrentScore || 0) >= 0 ? `+${roomState.rapidCurrentScore || 0}` : roomState.rapidCurrentScore}
+                </div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[9px] font-black uppercase opacity-75">Correct</div>
+                <div className="text-xl font-black text-emerald-400">{roomState.rapidSummary?.correct || 0}</div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[9px] font-black uppercase opacity-75">Wrong</div>
+                <div className="text-xl font-black text-rose-400">{roomState.rapidSummary?.wrong || 0}</div>
+              </div>
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10">
+                <div className="text-[9px] font-black uppercase opacity-75">Passed</div>
+                <div className="text-xl font-black text-gray-300">{roomState.rapidSummary?.passed || 0}</div>
+              </div>
+            </div>
+
+            {/* Total Standings */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 text-xs font-semibold text-violet-200 flex items-center justify-between">
+              <span>Your Cumulative Score:</span>
+              <span className="font-black text-amber-300 text-sm">{totalScore} pts</span>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 text-violet-200 text-xs font-bold animate-pulse">
+              <Clock className="w-4 h-4" />
+              <span>Waiting for Quiz Master to start next turn...</span>
+            </div>
+          </div>
+
+          {/* Footer Branding */}
+          <div className="text-center py-4 text-[11px] text-gray-400">
+            Powered by Eventora
+          </div>
+        </div>
+      );
+    }
   }
 
   // =========================================================================

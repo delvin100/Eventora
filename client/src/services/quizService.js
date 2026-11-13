@@ -140,6 +140,13 @@ export const QUIZ_TYPES = [
     description: 'Questions with audio, video, or image links. Choose MCQ or Question Only.',
     mode: 'media',
     isAvailable: true
+  },
+  {
+    id: 'rapid_fire',
+    name: 'Rapid Fire Round',
+    description: 'Single participant hot-seat round with master countdown timer and instant question flow.',
+    mode: 'rapid',
+    isAvailable: true
   }
 ];
 
