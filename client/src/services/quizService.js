@@ -468,6 +468,7 @@ export const quizService = {
     rounds,
     questions,
     participants,
+    turnHistory,
     introMediaUrl,
     introMediaType
   }) {
@@ -585,6 +586,9 @@ export const quizService = {
     const cleanParticipants = participants !== undefined
       ? (Array.isArray(participants) ? participants : [])
       : (existing?.participants || []);
+    const cleanTurnHistory = turnHistory !== undefined
+      ? (Array.isArray(turnHistory) ? turnHistory : [])
+      : (existing?.turnHistory || []);
     const totalMarks = cleanQuestions.reduce((sum, q) => sum + (Number(q.marks) || 1), 0);
 
     const updatedSettings = {
@@ -598,6 +602,7 @@ export const quizService = {
       introMediaUrl: finalIntroMediaUrl,
       introMediaType: finalIntroMediaType,
       rounds: cleanRounds,
+      participants: cleanParticipants,
       updated_at: new Date().toISOString()
     };
 
@@ -610,7 +615,7 @@ export const quizService = {
             questions: cleanQuestions,
             participants: cleanParticipants,
             rounds: cleanRounds,
-            turnHistory: existing?.turnHistory || []
+            turnHistory: cleanTurnHistory
           }
         };
         if (name) updatePayload.result_name = name.trim();
@@ -641,7 +646,7 @@ export const quizService = {
                   questions: cleanQuestions,
                   participants: cleanParticipants,
                   rounds: cleanRounds,
-                  turnHistory: existing?.turnHistory || []
+                  turnHistory: cleanTurnHistory
                 }
               })
             });
@@ -717,7 +722,7 @@ export const quizService = {
 
   // Reset quiz progress (points, turns, fair-turn pool, questions answered, back to round 1)
   // Keeps all questions, options, settings, intro media, and participant names completely intact
-  async resetQuizProgress(quizId) {
+  async resetQuizProgress(quizId, { clearParticipants = false } = {}) {
     if (!quizId) throw new Error('Quiz ID is required');
 
     let user = null;
@@ -731,12 +736,14 @@ export const quizService = {
     const currentQuiz = await this.getQuizById(quizId);
     if (!currentQuiz) throw new Error('Quiz not found');
 
-    const resetParticipants = (currentQuiz.participants || []).map(p => ({
-      ...p,
-      score: 0,
-      turns: 0,
-      correct: 0
-    }));
+    const resetParticipants = clearParticipants
+      ? []
+      : (currentQuiz.participants || []).map(p => ({
+          ...p,
+          score: 0,
+          turns: 0,
+          correct: 0
+        }));
 
     const resetRounds = (currentQuiz.rounds || []).map(r => ({
       ...r,
@@ -753,7 +760,7 @@ export const quizService = {
         const keysToRemove = [];
         for (let i = 0; i < localStorage.length; i++) {
           const k = localStorage.key(i);
-          if (k && k.startsWith(prefix)) {
+          if (k && (k.startsWith(prefix) || k.startsWith('eventora_live_quiz_session'))) {
             keysToRemove.push(k);
           }
         }
@@ -766,8 +773,14 @@ export const quizService = {
       isFinished: false,
       rounds: resetRounds,
       questions: round1Questions,
-      participants: resetParticipants
+      participants: resetParticipants,
+      turnHistory: []
     });
+  },
+
+  // Reset Live Arena quiz progress & completely purge all live participants and state from DB
+  async resetLiveQuizProgress(quizId) {
+    return this.resetQuizProgress(quizId, { clearParticipants: true });
   },
 
   // Delete a quiz

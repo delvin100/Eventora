@@ -33,7 +33,8 @@ import {
   XCircle,
   Maximize2,
   Minimize2,
-  RotateCcw
+  RotateCcw,
+  Ban
 } from 'lucide-react';
 
 import { useAuth } from '../context/AuthContext';
@@ -43,6 +44,7 @@ import EventParticipantsView from '../components/participants/EventParticipantsV
 import { playVictorySound } from '../components/wheel/audio/wheelAudio';
 import { quizService, QUIZ_TYPES } from '../services/quizService';
 import { slugify } from '../utils/slugUtils';
+import { computeStandings, getRankBadge } from '../utils/quizRankingUtils';
 import MediaViewer from '../components/quiz/MediaViewer';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -224,6 +226,7 @@ function QuizPlayPageContent() {
   const [showingIntro, setShowingIntro] = useState(null); // 'quiz' | 'round' | null
   const [isFullscreen, setIsFullscreen] = useState(() => {
     return Boolean(
+      (typeof document !== 'undefined' && document.fullscreenElement) ||
       location.state?.startQuiz ||
       location.state?.fullscreen ||
       location.pathname.endsWith('/wheel') ||
@@ -231,8 +234,29 @@ function QuizPlayPageContent() {
     );
   });
 
+  // Keep isFullscreen in perfect sync with the browser's native fullscreen API (F11, Esc, button clicks)
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
   const toggleFullscreen = () => {
-    setIsFullscreen(prev => !prev);
+    if (!document.fullscreenElement) {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
+      setIsFullscreen(false);
+    }
   };
 
   const isAdmin = user?.email === 'admin@gmail.com' || user?.user_metadata?.role === 'admin';
@@ -342,7 +366,7 @@ function QuizPlayPageContent() {
 
   const isTwoChances = currentRoundType === 'one_question_two_chances';
   const isDirect = currentRoundType === 'answer_to_question';
-  const isQuestionDirect = isDirect || (currentRoundType === 'media_based' && activeQuestion?.format === 'direct');
+  const isQuestionDirect = isDirect || activeQuestion?.format === 'direct' || (currentRoundType === 'media_based' && activeQuestion?.format === 'direct') || (!activeQuestion?.options?.length && Boolean(activeQuestion?.answer));
 
   // Questions and pool
   const questionsList = Array.isArray(activeRoundObj?.questions) ? activeRoundObj.questions : (Array.isArray(quiz?.questions) ? quiz.questions : []);
@@ -504,6 +528,9 @@ function QuizPlayPageContent() {
     }
 
     // Switch to wheel tab or show round intro if configured, entering fullscreen by default
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
     setIsFullscreen(true);
     if (nextRoundObj?.introMediaUrl) {
       setShowingIntro('round');
@@ -642,35 +669,13 @@ function QuizPlayPageContent() {
     setRemovedIds(prev => new Set([...prev].filter(id => !idSet.has(id))));
   };
 
-  // Reset turns for wheel and restore question pool
-  const handleResetTurns = () => {
-    setRemovedIds(new Set());
-    setUsedQuestionIds(new Set());
-  };
-
-  // Reset all student scores to 0 and restore question pool
-  const handleResetAllScores = () => {
-    if (!window.confirm('Reset all student scores to 0, clear questions history, and reset the wheel?')) return;
-    const reset = allParticipants.map(p => ({
-      ...p,
-      score: 0,
-      turns: 0,
-      correct: 0
-    }));
-    persistParticipants(reset);
-    setTurnHistory([]);
-    setRemovedIds(new Set());
-    setUsedQuestionIds(new Set());
-    clearQuizSession(quiz?.id);
-  };
-
   // Export Scoreboard / Total Marks to CSV
   const handleExportCSV = () => {
     if (allParticipants.length === 0) return;
-    const sorted = [...allParticipants].sort((a, b) => (b.score || 0) - (a.score || 0) || (b.correct || 0) - (a.correct || 0));
+    const sorted = computeStandings(allParticipants);
     const header = ['Rank', 'Student Name', 'Total Marks', 'Questions Taken', 'Correct Answers'];
-    const rows = sorted.map((p, idx) => [
-      idx + 1,
+    const rows = sorted.map((p) => [
+      p.isTied ? `${p.rank} (Tied)` : p.rank,
       `"${(p.name || '').replace(/"/g, '""')}"`,
       p.score || 0,
       p.turns || 0,
@@ -802,12 +807,15 @@ function QuizPlayPageContent() {
     }
 
     const currentQ = activeQuestion || questionsList[currentQuestionIdx];
+    const unansweredPenalty = Number(currentQ?.unansweredPenaltyMarks) || Number(activeRoundObj?.defaultUnansweredPenaltyMarks) || 0;
+    const marksEarned = unansweredPenalty > 0 ? -unansweredPenalty : 0;
 
-    // Award 0 points, increment turns completed
+    // Award marks (or negative penalty), increment turns completed
     const updatedAll = allParticipants.map(p => {
       if (p.id === currentWinner?.id) {
         return {
           ...p,
+          score: (Number(p.score) || 0) + marksEarned,
           turns: (Number(p.turns) || 0) + 1
         };
       }
@@ -841,15 +849,15 @@ function QuizPlayPageContent() {
         participantName: currentWinner?.name || 'Participant',
         questionNumber: usedQuestionIds.size + 1,
         questionText: currentQ?.text || `Question ${usedQuestionIds.size + 1}`,
-        selectedOptionText: 'Time Expired (0 pts)',
+        selectedOptionText: unansweredPenalty > 0 ? `Time Expired (-${unansweredPenalty} pts)` : 'Time Expired (0 pts)',
         isCorrect: false,
-        marksEarned: 0,
+        marksEarned,
         maxMarks: Number(currentQ?.marks) || 1,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       },
       ...prev
     ]);
-  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound, isDirect, isQuestionDirect, isTwoChances]);
+  }, [activeQuestion, questionsList, currentQuestionIdx, allParticipants, currentWinner, persistParticipants, usedQuestionIds, removedIds, quiz?.id, currentRound, isDirect, isQuestionDirect, isTwoChances, activeRoundObj]);
 
   // Active question countdown timer effect
   useEffect(() => {
@@ -887,6 +895,9 @@ function QuizPlayPageContent() {
 
     const optText = currentQ?.options?.[optIdx]?.text || `Option ${OPTION_LETTERS[optIdx] || optIdx + 1}`;
 
+    const wrongPenalty = Number(currentQ?.penaltyMarks) || Number(activeRoundObj?.defaultPenaltyMarks) || 0;
+    const secondTryWrongPenalty = Number(currentQ?.secondTryPenaltyMarks) || Number(activeRoundObj?.defaultSecondTryPenaltyMarks) || 0;
+
     if (isTwoChances) {
       if (attemptNumber === 1) {
         const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
@@ -906,7 +917,6 @@ function QuizPlayPageContent() {
           recordCompletedTurn(currentQ, true, marksEarned, `${optText} (1st Try)`);
         } else {
           // Participant answered wrong on 1st try:
-          // Just show that it was wrong, give 2nd chance, DO NOT REVEAL correct answer!
           setFirstAttemptWrongIdx(optIdx);
           setSelectedOptionIdx(optIdx);
           setAttemptNumber(2);
@@ -925,7 +935,13 @@ function QuizPlayPageContent() {
         const secondMarks = currentQ?.secondTryMarks !== undefined && !isNaN(Number(currentQ?.secondTryMarks))
           ? Number(currentQ.secondTryMarks)
           : Math.max(1, Math.round((Number(currentQ?.marks) || 1) / 2));
-        const marksEarned = isCorrect ? secondMarks : 0;
+
+        let marksEarned = 0;
+        if (isCorrect) {
+          marksEarned = secondMarks - (wrongPenalty > 0 ? wrongPenalty : 0);
+        } else {
+          marksEarned = -( (wrongPenalty > 0 ? wrongPenalty : 0) + (secondTryWrongPenalty > 0 ? secondTryWrongPenalty : 0) );
+        }
 
         if (isCorrect) {
           if (celebrationEnabled) {
@@ -944,7 +960,7 @@ function QuizPlayPageContent() {
       setHasAnswered(true);
 
       const isCorrect = Boolean(currentQ?.options?.[optIdx]?.isCorrect);
-      const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : 0;
+      const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : (wrongPenalty > 0 ? -wrongPenalty : 0);
 
       if (isCorrect) {
         if (celebrationEnabled) {
@@ -965,9 +981,11 @@ function QuizPlayPageContent() {
     const currentQ = activeQuestion || questionsList[currentQuestionIdx];
     if (!currentQ) return;
 
+    const wrongPenalty = Number(currentQ?.penaltyMarks) || Number(activeRoundObj?.defaultPenaltyMarks) || 0;
+
     setHasAnswered(true);
     setDirectResult(isCorrect ? 'correct' : 'wrong');
-    const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : 0;
+    const marksEarned = isCorrect ? (Number(currentQ?.marks) || 1) : (wrongPenalty > 0 ? -wrongPenalty : 0);
 
     if (isCorrect) {
       if (celebrationEnabled) {
@@ -978,7 +996,64 @@ function QuizPlayPageContent() {
       }
     }
 
-    recordCompletedTurn(currentQ, isCorrect, marksEarned, isCorrect ? 'Marked Correct' : 'Marked Wrong');
+    recordCompletedTurn(currentQ, isCorrect, marksEarned, isCorrect ? 'Marked Correct' : (wrongPenalty > 0 ? `Marked Wrong (-${wrongPenalty} pts)` : 'Marked Wrong'));
+  };
+
+  // Cancel Question: permanently discard current question from this round without penalizing or consuming the participant
+  const handleCancelQuestion = () => {
+    const currentQ = activeQuestion || questionsList[currentQuestionIdx];
+    if (!currentQ) {
+      setIsQuestionModalOpen(false);
+      return;
+    }
+
+    // 1. If the participant already answered before cancellation, rollback their score & turns
+    if (hasAnswered && currentWinner?.id) {
+      const lastTurn = turnHistory.find(t => t.questionId === currentQ.id && t.participantId === currentWinner.id);
+      const marksEarned = lastTurn ? (Number(lastTurn.marksEarned) || 0) : 0;
+      const wasCorrect = lastTurn ? Boolean(lastTurn.isCorrect) : false;
+
+      const reverted = allParticipants.map(p => {
+        if (p.id === currentWinner.id) {
+          return {
+            ...p,
+            score: (Number(p.score) || 0) - marksEarned,
+            turns: Math.max(0, (Number(p.turns) || 0) - 1),
+            correct: Math.max(0, (Number(p.correct) || 0) - (wasCorrect ? 1 : 0))
+          };
+        }
+        return p;
+      });
+      persistParticipants(reverted);
+      setTurnHistory(prev => prev.filter(t => !(t.questionId === currentQ.id && t.participantId === currentWinner.id)));
+    }
+
+    // 2. Mark this question as used/discarded so it never spins or shows again
+    let nextUsed = new Set([...usedQuestionIds, currentQ.id]);
+    setUsedQuestionIds(nextUsed);
+
+    // 3. Keep the participant eligible for spinning (do not add them to removedIds; if added, remove them)
+    let nextRemoved = new Set(removedIds);
+    if (currentWinner?.id) {
+      nextRemoved.delete(currentWinner.id);
+      setRemovedIds(nextRemoved);
+    }
+
+    saveQuizSession(quiz?.id, currentRound, nextUsed, nextRemoved);
+
+    // 4. Close modal and reset question states
+    setIsQuestionModalOpen(false);
+    setActiveQuestion(null);
+    setCurrentWinner(null);
+    setHasAnswered(false);
+    setSelectedOptionIdx(null);
+    setDirectResult(null);
+    setIsAnswerRevealed(false);
+    setAttemptNumber(1);
+    setFirstAttemptWrongIdx(null);
+    setSecondAttemptIdx(null);
+    setTimeLeft(null);
+    setIsTimedOut(false);
   };
 
   const handleNextQuestion = () => {
@@ -1020,13 +1095,14 @@ function QuizPlayPageContent() {
     <div
       className={`transition-all duration-200 ${
         isFullscreen
-          ? 'fixed inset-0 z-50 overflow-y-auto bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] p-4 sm:p-6 lg:p-8 overscroll-contain space-y-6'
+          ? 'fixed inset-0 z-50 overflow-y-auto bg-[#F7F8FC] dark:bg-[#0F1117] text-[#171923] dark:text-[#F3F4F8] p-4 sm:p-5 overscroll-contain space-y-4'
           : 'space-y-6 pb-12 text-[#171923] dark:text-[#F3F4F8]'
       }`}
     >
-      {/* Top Breadcrumb & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="space-y-1.5">
+      {/* Top Header Bar with Navigation Tabs Moved to Top */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-gray-200/80 dark:border-gray-800/80">
+        {/* Left: Breadcrumbs & Title */}
+        <div className="space-y-1">
           <nav className="flex items-center gap-2 text-xs font-medium text-gray-500 dark:text-gray-400">
             <Link
               to={location.state?.fromAdminAllQuizzes ? "/home/admin/quizzes" : "/home/quiz"}
@@ -1043,47 +1119,135 @@ function QuizPlayPageContent() {
               {quiz.name}
             </Link>
             <span>/</span>
-            <span className="text-gray-900 dark:text-white font-bold">Participants & Wheel</span>
+            <span className="text-gray-900 dark:text-white font-bold">
+              {activeTab === 'wheel' ? 'Spin Wheel' : activeTab === 'scoreboard' ? 'Total Marks' : 'Participants'}
+            </span>
           </nav>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-black text-gray-900 dark:text-white tracking-tight">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-lg sm:text-xl font-black text-gray-900 dark:text-white tracking-tight">
               {quiz.name}
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-violet-600 text-white">
               Round {currentRound}{totalRounds > 1 ? ` of ${totalRounds}` : ''}
             </span>
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
+            <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/60 text-[#635BFF]">
               {typeDef.name}
             </span>
           </div>
         </div>
 
-        {/* Top Action Buttons: Reset Progress, Fullscreen, Play Intro & Edit Questions */}
+        {/* Center: Main Tabs (Participants vs Spin Wheel vs Total Marks) moved right to the TOP! */}
+        {activeTab !== 'participants' ? (
+          <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-gray-100 dark:bg-[#161925] border border-gray-200 dark:border-gray-800 w-fit">
+            <button
+              type="button"
+              onClick={() => {
+                setShowingIntro(null);
+                setActiveTab('participants');
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Participants</span>
+              <span className="px-1.5 py-0.2 rounded-md bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 text-[10px] font-black">
+                {allParticipants.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={allParticipants.length === 0}
+              onClick={() => {
+                if (allParticipants.length > 0) {
+                  setShowingIntro(null);
+                  setActiveTab('wheel');
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                allParticipants.length === 0
+                  ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
+                  : activeTab === 'wheel'
+                  ? 'bg-[#635BFF] text-white shadow-xs cursor-pointer'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
+              }`}
+            >
+              <RotateCw className="w-3.5 h-3.5 shrink-0" />
+              <span>Spin Wheel</span>
+              {eligibleParticipants.length > 0 && fairTurn && (
+                <span className="px-1.5 py-0.2 rounded-md bg-white/20 text-[10px] font-black">
+                  {eligibleParticipants.length}
+                </span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              disabled={allParticipants.length === 0}
+              onClick={() => {
+                if (allParticipants.length > 0) {
+                  setShowingIntro(null);
+                  setActiveTab('scoreboard');
+                }
+              }}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                allParticipants.length === 0
+                  ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
+                  : activeTab === 'scoreboard'
+                  ? 'bg-amber-500 text-white shadow-xs cursor-pointer'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5 shrink-0" />
+              <span>Total Marks</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="p-1 rounded-2xl bg-gray-100 dark:bg-[#161925] border border-gray-200 dark:border-gray-800 w-fit">
+              <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-[#202434] text-gray-900 dark:text-white shadow-xs">
+                <Users className="w-3.5 h-3.5 text-[#635BFF]" />
+                <span>Participants</span>
+                <span className="px-1.5 py-0.2 rounded-md bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 text-[10px] font-black">
+                  {allParticipants.length}
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => navigate(`/home/quiz/${quizSlug}#launch`, { state: { quizId: quiz.id, scrollTo: 'launch', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+              className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-blue-600/25 active:scale-98 cursor-pointer"
+            >
+              <span>Next</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
+        {/* Right: Top Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Reset Test Progress Button */}
           {canReset && (
             <button
               type="button"
               onClick={() => setIsResetDialogOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-xs cursor-pointer"
-              title="Reset test scores, turns, and wheel progress back to Round 1"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/40 transition-colors shadow-xs cursor-pointer"
+              title="Reset progress"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Reset Progress</span>
+              <span className="hidden sm:inline">Reset</span>
             </button>
           )}
 
-          {/* Fullscreen Toggle */}
           <button
             type="button"
             onClick={toggleFullscreen}
-            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
               isFullscreen
                 ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/25 ring-1 ring-amber-400'
                 : 'bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
-            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen Presentation Mode'}
+            title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
           >
             {isFullscreen ? (
               <>
@@ -1105,20 +1269,20 @@ function QuizPlayPageContent() {
                 if (quiz.introMediaUrl) setShowingIntro('quiz');
                 else if (activeRoundObj?.introMediaUrl) setShowingIntro('round');
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-violet-50 dark:bg-violet-950/50 border border-violet-200/80 dark:border-violet-800/80 text-xs font-bold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors shadow-xs cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 dark:bg-violet-950/50 border border-violet-200/80 dark:border-violet-800/80 text-xs font-bold text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 transition-colors shadow-xs cursor-pointer"
             >
               <Play className="w-3.5 h-3.5 fill-violet-600" />
-              <span>Play Intro</span>
+              <span className="hidden sm:inline">Play Intro</span>
             </button>
           )}
 
           <Link
             to={`/home/quiz/${quizSlug}/questions`}
             state={{ quizId: quiz.id, round: currentRound }}
-            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#161925] text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors shadow-xs"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Edit Questions</span>
+            <span className="hidden sm:inline">Edit Questions</span>
           </Link>
         </div>
       </div>
@@ -1130,88 +1294,6 @@ function QuizPlayPageContent() {
           <span>Quiz progress has been reset back to Round 1! Scores and wheel turns have been refreshed.</span>
         </div>
       )}
-
-      {/* Main Tabs (Participants vs Wheel vs Total Marks) */}
-      <div className="flex flex-wrap items-center gap-2 p-1.5 rounded-2xl bg-gray-100 dark:bg-[#161925] border border-gray-200 dark:border-gray-800 w-fit">
-        <button
-          type="button"
-          onClick={() => {
-            setShowingIntro(null);
-            setActiveTab('participants');
-          }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            !showingIntro && activeTab === 'participants'
-              ? 'bg-white dark:bg-[#202434] text-gray-900 dark:text-white shadow-xs'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>Participants</span>
-          <span className="px-1.5 py-0.2 rounded-md bg-violet-100 dark:bg-violet-900/50 text-violet-700 dark:text-violet-300 text-[10px] font-black">
-            {allParticipants.length}
-          </span>
-        </button>
-
-        {/* Spin Wheel Tab Button (Locked if no participants) */}
-        <button
-          type="button"
-          disabled={allParticipants.length === 0}
-          onClick={() => {
-            if (allParticipants.length > 0) {
-              setIsFullscreen(true);
-              setShowingIntro(null);
-              setActiveTab('wheel');
-            }
-          }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            allParticipants.length === 0
-              ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
-              : !showingIntro && activeTab === 'wheel'
-              ? 'bg-[#635BFF] text-white shadow-xs cursor-pointer'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
-          }`}
-          title={allParticipants.length === 0 ? 'Add participants first to unlock the wheel' : 'Spin Wheel'}
-        >
-          {allParticipants.length === 0 ? (
-            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          ) : (
-            <RotateCw className="w-4 h-4 shrink-0" />
-          )}
-          <span>Spin Wheel</span>
-          {eligibleParticipants.length > 0 && fairTurn && (
-            <span className="px-1.5 py-0.2 rounded-md bg-white/20 text-[10px] font-black">
-              {eligibleParticipants.length}
-            </span>
-          )}
-        </button>
-
-        {/* Results / Total Marks Tab Button (Locked if no participants) */}
-        <button
-          type="button"
-          disabled={allParticipants.length === 0}
-          onClick={() => {
-            if (allParticipants.length > 0) {
-              setShowingIntro(null);
-              setActiveTab('scoreboard');
-            }
-          }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-            allParticipants.length === 0
-              ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
-              : !showingIntro && activeTab === 'scoreboard'
-              ? 'bg-amber-500 text-white shadow-xs cursor-pointer'
-              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white cursor-pointer'
-          }`}
-          title={allParticipants.length === 0 ? 'Add participants first to unlock results' : 'Total Marks & Results'}
-        >
-          {allParticipants.length === 0 ? (
-            <Lock className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-          ) : (
-            <Trophy className="w-4 h-4 shrink-0" />
-          )}
-          <span>Total Marks</span>
-        </button>
-      </div>
 
       {/* ===================== INTRO PRESENTATION SCREEN ===================== */}
       {showingIntro ? (
@@ -1260,6 +1342,9 @@ function QuizPlayPageContent() {
                     if (showingIntro === 'quiz' && activeRoundObj?.introMediaUrl) {
                       setShowingIntro('round');
                     } else {
+                      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+                        document.documentElement.requestFullscreen().catch(() => {});
+                      }
                       setIsFullscreen(true);
                       setShowingIntro(null);
                       setActiveTab('wheel');
@@ -1290,6 +1375,9 @@ function QuizPlayPageContent() {
                   if (showingIntro === 'quiz' && activeRoundObj?.introMediaUrl) {
                     setShowingIntro('round');
                   } else {
+                    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+                      document.documentElement.requestFullscreen().catch(() => {});
+                    }
                     setIsFullscreen(true);
                     setShowingIntro(null);
                     setActiveTab('wheel');
@@ -1323,27 +1411,17 @@ function QuizPlayPageContent() {
             onBulkDeleteParticipants={handleBulkDelete}
           />
 
-          {/* Bottom Callout to Wheel */}
-          {allParticipants.length > 0 && (
-            <div className="flex items-center justify-end pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsFullscreen(true);
-                  if (activeRoundObj?.introMediaUrl) {
-                    setShowingIntro('round');
-                  } else {
-                    setShowingIntro(null);
-                    setActiveTab('wheel');
-                  }
-                }}
-                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-[#635BFF]/25"
-              >
-                <span>Next: Spin Wheel</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+          {/* Bottom Next Button */}
+          <div className="flex items-center justify-end pt-3">
+            <button
+              type="button"
+              onClick={() => navigate(`/home/quiz/${quizSlug}#launch`, { state: { quizId: quiz.id, scrollTo: 'launch', fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase tracking-wider transition-all shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/35 active:scale-98 cursor-pointer"
+            >
+              <span>Next</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -1376,11 +1454,10 @@ function QuizPlayPageContent() {
               {/* Quick Top 3 Preview */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 max-w-md mx-auto">
                 {(() => {
-                  const sorted = [...allParticipants].sort((a, b) => (b.score || 0) - (a.score || 0) || (b.correct || 0) - (a.correct || 0)).slice(0, 3);
-                  const medals = ['🥇 1st', '🥈 2nd', '🥉 3rd'];
-                  return sorted.map((p, idx) => (
+                  const sorted = computeStandings(allParticipants, 'correct').slice(0, 3);
+                  return sorted.map((p) => (
                     <div key={p.id} className="p-3 rounded-2xl bg-white/5 border border-white/10 text-center space-y-1">
-                      <span className="text-[10px] font-black text-amber-400 block">{medals[idx]}</span>
+                      <span className="text-[10px] font-black text-amber-400 block">{getRankBadge(p.rank, p.isTied, 'ordinal')}</span>
                       <p className="text-xs font-bold text-white truncate">{p.name}</p>
                       <span className="inline-block px-2.5 py-0.5 rounded-lg bg-[#635BFF]/30 text-[#8881FF] font-black text-xs">
                         {p.score || 0} pts
@@ -1425,7 +1502,11 @@ function QuizPlayPageContent() {
               </div>
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto flex flex-col items-center space-y-6">
+            <div className={`mx-auto flex flex-col items-center w-full transition-all duration-200 ${
+              isFullscreen
+                ? 'max-w-4xl space-y-2 sm:space-y-2.5'
+                : 'max-w-3xl space-y-3.5 sm:space-y-4'
+            }`}>
               {questionsList.length === 0 && (
                 <div className="w-full p-6 rounded-3xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-center space-y-3">
                   <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
@@ -1447,7 +1528,11 @@ function QuizPlayPageContent() {
               )}
 
               {/* Wheel Container */}
-              <div className="relative w-full max-w-md aspect-square flex items-center justify-center p-3 rounded-3xl bg-gradient-to-b from-[#181B2A] to-[#12141F] border border-gray-800 shadow-2xl overflow-hidden">
+              <div className={`relative w-full aspect-square flex items-center justify-center p-1.5 sm:p-2 rounded-3xl bg-gradient-to-b from-[#181B2A] to-[#12141F] border border-gray-800 shadow-2xl overflow-hidden transition-all duration-300 ${
+                isFullscreen
+                  ? 'max-w-[min(820px,72vh)]'
+                  : 'max-w-[min(660px,65vh)]'
+              }`}>
                 <WheelCanvas
                   ref={wheelRef}
                   participants={
@@ -1473,7 +1558,11 @@ function QuizPlayPageContent() {
 
               {/* Quick Add Participant Box when no participants enrolled */}
               {allParticipants.length === 0 && (
-                <div className="w-full max-w-md p-4 rounded-2xl bg-white dark:bg-[#161925] border border-violet-200 dark:border-violet-900/50 shadow-md space-y-3">
+                <div className={`w-full p-4 rounded-2xl bg-white dark:bg-[#161925] border border-violet-200 dark:border-violet-900/50 shadow-md space-y-3 ${
+                  isFullscreen
+                    ? 'max-w-[min(820px,72vh)]'
+                    : 'max-w-[min(660px,65vh)]'
+                }`}>
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="text-xs font-bold text-gray-900 dark:text-white">Add Participants to Spin</h4>
@@ -1508,7 +1597,11 @@ function QuizPlayPageContent() {
               )}
 
               {/* Slices / Remaining info & Scoreboard shortcut */}
-              <div className="w-full max-w-md flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-1">
+              <div className={`w-full flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 px-1 ${
+                isFullscreen
+                  ? 'max-w-[min(820px,72vh)]'
+                  : 'max-w-[min(660px,65vh)]'
+              }`}>
                 <span>
                   {eligibleParticipants.length} students • {availableQuestions.length} questions remaining
                 </span>
@@ -1523,7 +1616,11 @@ function QuizPlayPageContent() {
               </div>
 
               {/* Big Spin Action Button */}
-              <div className="w-full max-w-md flex flex-col items-center gap-3">
+              <div className={`w-full flex flex-col items-center gap-2 ${
+                isFullscreen
+                  ? 'max-w-[min(820px,72vh)]'
+                  : 'max-w-[min(660px,65vh)]'
+              }`}>
                 <button
                   type="button"
                   onClick={handleSpinWheel}
@@ -1542,57 +1639,59 @@ function QuizPlayPageContent() {
                   </span>
                 </button>
 
-                {/* Wheel Settings Toolbar */}
-                <div className="w-full flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-xs">
-                  {/* Stylish Duration Dropdown */}
-                  <StylishDurationDropdown
-                    value={duration}
-                    onChange={setDuration}
-                    disabled={isSpinning}
-                  />
+                {/* Wheel Settings Toolbar (hidden in fullscreen for clean presentation) */}
+                {!isFullscreen && (
+                  <div className="w-full flex items-center justify-between gap-2 p-2 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 text-xs">
+                    {/* Stylish Duration Dropdown */}
+                    <StylishDurationDropdown
+                      value={duration}
+                      onChange={setDuration}
+                      disabled={isSpinning}
+                    />
 
-                  {/* Sound & Celebration Toggles */}
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSoundEnabled(!soundEnabled)}
-                      className={`p-1.5 rounded-lg border transition-colors ${
-                        soundEnabled
-                          ? 'bg-violet-50 dark:bg-violet-950/50 border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400'
-                          : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                      title="Toggle Sound"
-                    >
-                      {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
-                    </button>
+                    {/* Sound & Celebration Toggles */}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setSoundEnabled(!soundEnabled)}
+                        className={`p-1.5 rounded-lg border transition-colors ${
+                          soundEnabled
+                            ? 'bg-violet-50 dark:bg-violet-950/50 border-violet-200 dark:border-violet-800 text-violet-600 dark:text-violet-400'
+                            : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                        title="Toggle Sound"
+                      >
+                        {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setCelebrationEnabled(!celebrationEnabled)}
-                      className={`p-1.5 rounded-lg border transition-colors ${
-                        celebrationEnabled
-                          ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400'
-                          : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                      title="Toggle Celebration Confetti"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setCelebrationEnabled(!celebrationEnabled)}
+                        className={`p-1.5 rounded-lg border transition-colors ${
+                          celebrationEnabled
+                            ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400'
+                            : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                        title="Toggle Celebration Confetti"
+                      >
+                        <Sparkles className="w-4 h-4" />
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setFairTurn(!fairTurn)}
-                      className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors ${
-                        fairTurn
-                          ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
-                          : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
-                      }`}
-                      title="When on, selected participants are removed from upcoming spins in this round"
-                    >
-                      Fair Turn: {fairTurn ? 'ON' : 'OFF'}
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setFairTurn(!fairTurn)}
+                        className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors ${
+                          fairTurn
+                            ? 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400'
+                            : 'border-transparent text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                        }`}
+                        title="When on, selected participants are removed from upcoming spins in this round"
+                      >
+                        Fair Turn: {fairTurn ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Turn History Card */}
                 {turnHistory.length > 0 && (
@@ -1734,9 +1833,9 @@ function QuizPlayPageContent() {
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                     {(() => {
-                      const filtered = allParticipants
-                        .filter(p => !scoreboardSearch || p.name?.toLowerCase().includes(scoreboardSearch.toLowerCase()) || p.external_identifier?.toLowerCase().includes(scoreboardSearch.toLowerCase()))
-                        .sort((a, b) => (b.score || 0) - (a.score || 0) || (b.correct || 0) - (a.correct || 0));
+                      const rawFiltered = allParticipants
+                        .filter(p => !scoreboardSearch || p.name?.toLowerCase().includes(scoreboardSearch.toLowerCase()) || p.external_identifier?.toLowerCase().includes(scoreboardSearch.toLowerCase()));
+                      const filtered = computeStandings(rawFiltered, 'correct');
 
                       if (filtered.length === 0) {
                         return (
@@ -1748,15 +1847,14 @@ function QuizPlayPageContent() {
                         );
                       }
 
-                      return filtered.map((p, idx) => {
-                        const rankBadges = ['🥇', '🥈', '🥉'];
-                        const rankColor = idx === 0 ? 'text-amber-500 font-black' : idx === 1 ? 'text-slate-400 font-black' : idx === 2 ? 'text-amber-700 font-black' : 'text-gray-400 font-bold';
+                      return filtered.map((p) => {
+                        const rankColor = p.rank === 1 ? 'text-amber-500 font-black' : p.rank === 2 ? 'text-slate-400 font-black' : p.rank === 3 ? 'text-amber-700 font-black' : 'text-gray-400 font-bold';
 
                         return (
                           <tr key={p.id} className="hover:bg-gray-50/50 dark:hover:bg-[#12141F]/60 transition-colors">
                             <td className="py-3 px-3">
                               <span className={`inline-flex items-center gap-1 ${rankColor}`}>
-                                {idx < 3 ? rankBadges[idx] : `#${idx + 1}`}
+                                {getRankBadge(p.rank, p.isTied, 'short')}
                               </span>
                             </td>
                             <td className="py-3 px-3 font-bold text-gray-900 dark:text-white">
@@ -1849,12 +1947,48 @@ function QuizPlayPageContent() {
                 )}
 
                 {activeQuestion && (
-                  <span className="px-2.5 py-1 rounded-xl bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 font-extrabold text-xs">
-                    {isTwoChances
-                      ? `${(attemptNumber === 2 ? (activeQuestion.secondTryMarks !== undefined ? activeQuestion.secondTryMarks : 1) : (activeQuestion.marks || 1))} pts`
-                      : `${activeQuestion.marks || 1} pts`}
-                  </span>
+                  isTwoChances ? (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-900/40 dark:bg-gray-900/70 border border-gray-200 dark:border-gray-800 text-xs font-extrabold shadow-xs">
+                      <span className={attemptNumber === 1 ? 'text-emerald-600 dark:text-emerald-400 font-black' : 'text-gray-400 line-through'}>
+                        1st: +{activeQuestion.marks || 1}
+                      </span>
+                      <span className="text-gray-400 dark:text-gray-600 font-bold">•</span>
+                      <span className="text-amber-500 dark:text-yellow-400 font-black">
+                        2nd: +{activeQuestion.secondTryMarks !== undefined ? activeQuestion.secondTryMarks : 1} pts
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-xl bg-violet-50 dark:bg-violet-950/50 text-violet-700 dark:text-violet-300 font-extrabold text-xs">
+                      +{activeQuestion.marks || 1} pts
+                    </span>
+                  )
                 )}
+
+                {/* Penalty indicators if configured */}
+                {(() => {
+                  const wrongPen = Number(activeQuestion?.penaltyMarks) || Number(activeRoundObj?.defaultPenaltyMarks) || 0;
+                  const secondPen = Number(activeQuestion?.secondTryPenaltyMarks) || Number(activeRoundObj?.defaultSecondTryPenaltyMarks) || 0;
+                  const unansPen = Number(activeQuestion?.unansweredPenaltyMarks) || Number(activeRoundObj?.defaultUnansweredPenaltyMarks) || 0;
+                  if (!wrongPen && !secondPen && !unansPen) return null;
+                  return (
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-bold">
+                      {wrongPen > 0 && <span>Wrong: -{wrongPen}</span>}
+                      {secondPen > 0 && <span>2nd: -{secondPen}</span>}
+                      {unansPen > 0 && <span>Unanswered: -{unansPen}</span>}
+                    </div>
+                  );
+                })()}
+
+                {/* Cancel Question Button */}
+                <button
+                  type="button"
+                  onClick={handleCancelQuestion}
+                  className="px-2.5 py-1 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-400 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Cancel and permanently discard this question"
+                >
+                  <Ban className="w-3.5 h-3.5" />
+                  <span>Cancel Que</span>
+                </button>
 
                 <button
                   type="button"
@@ -1937,6 +2071,19 @@ function QuizPlayPageContent() {
                           <p className="text-base sm:text-lg font-black text-gray-900 dark:text-white leading-relaxed">
                             {activeQuestion.answer || '(No answer text provided)'}
                           </p>
+                          {Array.isArray(activeQuestion.acceptableAnswers) && activeQuestion.acceptableAnswers.filter(Boolean).length > 0 && (
+                            <div className="pt-1.5 flex items-center justify-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400">Also accepted:</span>
+                              {activeQuestion.acceptableAnswers.filter(Boolean).map((alt, idx) => (
+                                <span
+                                  key={idx}
+                                  className="px-2 py-0.5 rounded-md bg-white dark:bg-[#161925] text-violet-700 dark:text-violet-300 text-xs font-bold border border-violet-200 dark:border-violet-800"
+                                >
+                                  {alt}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
 
                         {/* Correct / Wrong Decision Buttons */}
@@ -2241,14 +2388,27 @@ function QuizPlayPageContent() {
             )}
 
             {/* Modal Footer Controls */}
-            <div className="pt-2 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => setIsQuestionModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-              >
-                Close
-              </button>
+            <div className="pt-2 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsQuestionModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 text-xs font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                >
+                  Close
+                </button>
+                {activeQuestion && (
+                  <button
+                    type="button"
+                    onClick={handleCancelQuestion}
+                    className="px-3.5 py-2.5 rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/20 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-950/40 flex items-center gap-1.5 cursor-pointer transition-colors"
+                    title="Cancel and discard this question"
+                  >
+                    <Ban className="w-3.5 h-3.5" />
+                    <span>Cancel Question</span>
+                  </button>
+                )}
+              </div>
 
               <button
                 type="button"

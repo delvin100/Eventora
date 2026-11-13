@@ -1556,8 +1556,8 @@ router.put('/quizzes/:quizId', async (req, res, next) => {
       rounds: (Array.isArray(result_snapshot.rounds) && result_snapshot.rounds.length > 0)
         ? result_snapshot.rounds
         : (mergedSettings.rounds || existingSnapshot.rounds || []),
-      // Never overwrite existing participants if new payload is empty/missing
-      participants: (Array.isArray(result_snapshot.participants) && result_snapshot.participants.length > 0)
+      // Allow resetting participants if explicitly provided as an array
+      participants: Array.isArray(result_snapshot.participants)
         ? result_snapshot.participants
         : (existingSnapshot.participants || []),
       turnHistory: result_snapshot.turnHistory !== undefined

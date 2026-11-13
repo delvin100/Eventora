@@ -73,6 +73,16 @@
   animation: pulse-glow 3s ease-in-out infinite;
 }
 
+@keyframes pin-pop {
+  0% { transform: scale(0.88) translateY(0); }
+  50% { transform: scale(1.12) translateY(-2px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+.animate-pin-pop {
+  animation: pin-pop 0.22s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
 /* Remove default number input spin arrows */
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {

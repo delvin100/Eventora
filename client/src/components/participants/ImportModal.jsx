@@ -8,8 +8,7 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowLeft,
-  FileCheck,
-  RefreshCw
+  FileCheck
 } from 'lucide-react';
 import { downloadSampleTemplate, parseSpreadsheetFile } from '../../utils/excelUtils';
 

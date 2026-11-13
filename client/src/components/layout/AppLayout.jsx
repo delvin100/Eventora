@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   CalendarDays,
   ListOrdered,
-  Plus,
   PanelLeft,
   LogOut,
   Menu,
@@ -132,23 +131,9 @@ export default function AppLayout() {
           </button>
         </div>
 
-        {/* Primary CTA: Create Event */}
-        <div className={`p-3 shrink-0 ${sidebarCollapsed ? 'flex justify-center px-2' : ''}`}>
-          <Link
-            to="/home/events/new"
-            className={`flex items-center justify-center gap-2 rounded-xl bg-[#635BFF] hover:bg-[#5145E5] text-white font-semibold text-sm shadow-md shadow-[#635BFF]/25 hover:shadow-lg transition-all ${
-              sidebarCollapsed ? 'w-11 h-11 p-0' : 'py-2.5 px-3 w-full'
-            }`}
-            title="Create New Event"
-          >
-            <Plus className="w-5 h-5 shrink-0" />
-            {!sidebarCollapsed && <span>New Event</span>}
-          </Link>
-        </div>
-
         {/* Navigation links */}
         <nav className={`flex-1 space-y-1 overflow-y-auto min-h-0 ${
-          sidebarCollapsed ? 'px-2 py-2 flex flex-col items-center' : 'px-3 py-2'
+          sidebarCollapsed ? 'px-2 py-3 flex flex-col items-center' : 'px-3 py-3'
         }`}>
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -260,15 +245,6 @@ export default function AppLayout() {
       {mobileMenuOpen && (
         <div className="md:hidden fixed inset-0 top-16 bg-white dark:bg-[#151823] z-30 p-6 flex flex-col justify-between overflow-y-auto">
           <div className="space-y-4">
-            <Link
-              to="/home/events/new"
-              onClick={() => setMobileMenuOpen(false)}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#635BFF] text-white font-semibold text-sm shadow-md"
-            >
-              <Plus className="w-5 h-5" />
-              <span>Create New Event</span>
-            </Link>
-
             <nav className="space-y-1">
               {navItems.map((item) => {
                 const Icon = item.icon;

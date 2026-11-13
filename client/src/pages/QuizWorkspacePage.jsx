@@ -36,8 +36,8 @@ import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
 
 const OPTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
 
-function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks = 1) {
-  const isDirect = quizType === 'answer_to_question';
+function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks = 1, mediaFormat = 'mcq', penalty = 0, secondPenalty = 0, unansPenalty = 0) {
+  const isDirect = quizType === 'answer_to_question' || (quizType === 'media_based' && mediaFormat === 'direct');
   const isTwoChances = quizType === 'one_question_two_chances';
   const isMedia = quizType === 'media_based';
   return {
@@ -47,8 +47,12 @@ function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks
     mediaType: 'image',
     mediaUrl: '',
     answer: isDirect ? '' : undefined,
+    acceptableAnswers: isDirect ? [] : undefined,
     marks: Number(defaultMarks) || 1,
     secondTryMarks: isTwoChances ? (Number(defaultSecondTryMarks) || 1) : undefined,
+    penaltyMarks: Number(penalty) || 0,
+    secondTryPenaltyMarks: isTwoChances ? (Number(secondPenalty) || 0) : undefined,
+    unansweredPenaltyMarks: Number(unansPenalty) || 0,
     timeLimit: null,
     timeValue: '',
     timeUnit: 'sec',
@@ -61,7 +65,7 @@ function createDefaultQuestion(quizType, defaultMarks = 1, defaultSecondTryMarks
   };
 }
 
-function normalizeQuestions(rawList, defaultSecondMarks = 1) {
+function normalizeQuestions(rawList, defaultSecondMarks = 1, defaultPenalty = 0, defaultSecondPenalty = 0, defaultUnansPenalty = 0) {
   if (!Array.isArray(rawList)) return [];
   return rawList.map(q => {
     const unit = q.timeUnit || 'sec';
@@ -79,7 +83,13 @@ function normalizeQuestions(rawList, defaultSecondMarks = 1) {
       mediaType: q.mediaType || 'image',
       mediaUrl: q.mediaUrl || '',
       answer: q.answer !== undefined ? q.answer : '',
+      acceptableAnswers: Array.isArray(q.acceptableAnswers)
+        ? q.acceptableAnswers
+        : (Array.isArray(q.answers) ? q.answers : []),
       secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondMarks) || 1),
+      penaltyMarks: q.penaltyMarks !== undefined ? q.penaltyMarks : Number(defaultPenalty) || 0,
+      secondTryPenaltyMarks: q.secondTryPenaltyMarks !== undefined ? q.secondTryPenaltyMarks : Number(defaultSecondPenalty) || 0,
+      unansweredPenaltyMarks: q.unansweredPenaltyMarks !== undefined ? q.unansweredPenaltyMarks : Number(defaultUnansPenalty) || 0,
       timeValue: val,
       timeUnit: unit,
       timeLimit: q.timeLimit ? Number(q.timeLimit) : (val !== '' && !isNaN(Number(val)) && Number(val) > 0 ? (unit === 'min' ? Math.round(Number(val) * 60) : Math.round(Number(val))) : null)
@@ -161,6 +171,9 @@ export default function QuizWorkspacePage() {
   const [quizDescription, setQuizDescription] = useState('');
   const [defaultMarks, setDefaultMarks] = useState(1);
   const [defaultSecondTryMarks, setDefaultSecondTryMarks] = useState(1);
+  const [defaultPenaltyMarks, setDefaultPenaltyMarks] = useState(0);
+  const [defaultSecondTryPenaltyMarks, setDefaultSecondTryPenaltyMarks] = useState(0);
+  const [defaultUnansweredPenaltyMarks, setDefaultUnansweredPenaltyMarks] = useState(0);
   const [defaultTimeValue, setDefaultTimeValue] = useState('');
   const [defaultTimeUnit, setDefaultTimeUnit] = useState('sec');
   const [questions, setQuestions] = useState([]);
@@ -171,6 +184,7 @@ export default function QuizWorkspacePage() {
   const [currentRound, setCurrentRound] = useState(1);
   const [isTypeConfirmed, setIsTypeConfirmed] = useState(false);
   const [selectedRoundType, setSelectedRoundType] = useState('');
+  const [mediaRoundFormat, setMediaRoundFormat] = useState('mcq'); // 'mcq' (Options) | 'direct' (Q&A)
   const [roundToDeleteNum, setRoundToDeleteNum] = useState(null);
   const [roundIntroMediaUrl, setRoundIntroMediaUrl] = useState('');
   const [roundIntroMediaType, setRoundIntroMediaType] = useState('video');
@@ -375,16 +389,25 @@ export default function QuizWorkspacePage() {
 
         setIsTypeConfirmed(hasConfirmedType);
         setSelectedRoundType(activeRound.quizType || '');
+        const detectedMediaFormat = activeRound.mediaFormat || (activeRound.questions?.length > 0 && activeRound.questions.every(q => q.format === 'direct') ? 'direct' : 'mcq');
+        setMediaRoundFormat(detectedMediaFormat);
         setRoundIntroMediaUrl(activeRound.introMediaUrl || '');
         setRoundIntroMediaType(activeRound.introMediaType || 'video');
+
+        const roundPen = activeRound.penaltyMarks !== undefined ? Number(activeRound.penaltyMarks) : (Number(data.defaultPenaltyMarks) || 0);
+        const roundSecondPen = activeRound.secondTryPenaltyMarks !== undefined ? Number(activeRound.secondTryPenaltyMarks) : (Number(data.defaultSecondTryPenaltyMarks) || 0);
+        const roundUnansPen = activeRound.unansweredPenaltyMarks !== undefined ? Number(activeRound.unansweredPenaltyMarks) : (Number(data.defaultUnansweredPenaltyMarks) || 0);
+        setDefaultPenaltyMarks(roundPen);
+        setDefaultSecondTryPenaltyMarks(roundSecondPen);
+        setDefaultUnansweredPenaltyMarks(roundUnansPen);
 
         let rawQuestions = Array.isArray(activeRound.questions) && activeRound.questions.length > 0
           ? activeRound.questions
           : hasConfirmedType
-          ? [createDefaultQuestion(activeRound.quizType, data.defaultMarks || 1, data.defaultSecondTryMarks || 1)]
+          ? [createDefaultQuestion(activeRound.quizType, data.defaultMarks || 1, data.defaultSecondTryMarks || 1, detectedMediaFormat, roundPen, roundSecondPen, roundUnansPen)]
           : [];
 
-        const initialQuestions = normalizeQuestions(rawQuestions, data.defaultSecondTryMarks || 1);
+        const initialQuestions = normalizeQuestions(rawQuestions, data.defaultSecondTryMarks || 1, roundPen, roundSecondPen, roundUnansPen);
         setQuestions(initialQuestions);
 
         // Update document title and rewrite UUID URL with slug
@@ -420,8 +443,13 @@ export default function QuizWorkspacePage() {
       ...q,
       marks: Math.max(1, parseInt(q.marks, 10) || 1),
       ...(selectedRoundType === 'one_question_two_chances'
-        ? { secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1) }
-        : {})
+        ? {
+            secondTryMarks: Math.max(1, parseInt(q.secondTryMarks, 10) || 1),
+            secondTryPenaltyMarks: q.secondTryPenaltyMarks !== undefined && q.secondTryPenaltyMarks !== '' ? Math.max(0, parseFloat(q.secondTryPenaltyMarks) || 0) : (Number(defaultSecondTryPenaltyMarks) || 0)
+          }
+        : {}),
+      penaltyMarks: q.penaltyMarks !== undefined && q.penaltyMarks !== '' ? Math.max(0, parseFloat(q.penaltyMarks) || 0) : (Number(defaultPenaltyMarks) || 0),
+      unansweredPenaltyMarks: q.unansweredPenaltyMarks !== undefined && q.unansweredPenaltyMarks !== '' ? Math.max(0, parseFloat(q.unansweredPenaltyMarks) || 0) : (Number(defaultUnansweredPenaltyMarks) || 0)
     }));
   };
 
@@ -436,8 +464,12 @@ export default function QuizWorkspacePage() {
         return {
           ...r,
           quizType: selectedRoundType,
+          mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedCurrentQuestions,
+          penaltyMarks: Number(defaultPenaltyMarks) || 0,
+          secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+          unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
           introMediaUrl: roundIntroMediaUrl,
           introMediaType: roundIntroMediaType
         };
@@ -449,8 +481,12 @@ export default function QuizWorkspacePage() {
       updatedRounds.push({
         roundNumber: currentRound,
         quizType: selectedRoundType,
+        mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
         isTypeConfirmed: isTypeConfirmed,
         questions: sanitizedCurrentQuestions,
+        penaltyMarks: Number(defaultPenaltyMarks) || 0,
+        secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+        unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
         introMediaUrl: roundIntroMediaUrl,
         introMediaType: roundIntroMediaType,
         isCompleted: false
@@ -477,17 +513,26 @@ export default function QuizWorkspacePage() {
 
     setCurrentRound(targetRoundNum);
     setSelectedRoundType(targetRound.quizType || '');
+    const detectedMediaFormat = targetRound.mediaFormat || (targetRound.questions?.length > 0 && targetRound.questions.every(q => q.format === 'direct') ? 'direct' : 'mcq');
+    setMediaRoundFormat(detectedMediaFormat);
     setIsTypeConfirmed(hasConfirmed);
     setRoundIntroMediaUrl(targetRound.introMediaUrl || '');
     setRoundIntroMediaType(targetRound.introMediaType || 'video');
 
+    const roundPen = targetRound.penaltyMarks !== undefined ? Number(targetRound.penaltyMarks) : 0;
+    const roundSecondPen = targetRound.secondTryPenaltyMarks !== undefined ? Number(targetRound.secondTryPenaltyMarks) : 0;
+    const roundUnansPen = targetRound.unansweredPenaltyMarks !== undefined ? Number(targetRound.unansweredPenaltyMarks) : 0;
+    setDefaultPenaltyMarks(roundPen);
+    setDefaultSecondTryPenaltyMarks(roundSecondPen);
+    setDefaultUnansweredPenaltyMarks(roundUnansPen);
+
     const rawQuestions = Array.isArray(targetRound.questions) && targetRound.questions.length > 0
       ? targetRound.questions
       : hasConfirmed
-      ? [createDefaultQuestion(targetRound.quizType, defaultMarks, defaultSecondTryMarks)]
+      ? [createDefaultQuestion(targetRound.quizType, defaultMarks, defaultSecondTryMarks, detectedMediaFormat, roundPen, roundSecondPen, roundUnansPen)]
       : [];
 
-    setQuestions(normalizeQuestions(rawQuestions, defaultSecondTryMarks));
+    setQuestions(normalizeQuestions(rawQuestions, defaultSecondTryMarks, roundPen, roundSecondPen, roundUnansPen));
   };
 
   // Add a new round at the beginning
@@ -607,11 +652,12 @@ export default function QuizWorkspacePage() {
     }
 
     const targetQuizId = quiz?.id || location.state?.quizId || quizId;
-    const isDirect = selectedRoundType === 'answer_to_question';
+    const isDirect = selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && mediaRoundFormat === 'direct');
     const isTwoChances = selectedRoundType === 'one_question_two_chances';
 
     const defaultQ = questions.length > 0 ? questions.map(q => ({
       ...q,
+      format: isDirect ? 'direct' : 'mcq',
       answer: q.answer !== undefined ? q.answer : '',
       secondTryMarks: q.secondTryMarks !== undefined ? q.secondTryMarks : (Number(defaultSecondTryMarks) || 1),
       options: isDirect
@@ -624,13 +670,14 @@ export default function QuizWorkspacePage() {
               { id: 'opt_3', text: '', isCorrect: false },
               { id: 'opt_4', text: '', isCorrect: false }
             ])
-    })) : [createDefaultQuestion(selectedRoundType, defaultMarks, defaultSecondTryMarks)];
+    })) : [createDefaultQuestion(selectedRoundType, defaultMarks, defaultSecondTryMarks, mediaRoundFormat)];
 
     const updatedRounds = rounds.map(r => {
       if (r.roundNumber === currentRound) {
         return {
           ...r,
           quizType: selectedRoundType,
+          mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: true,
           questions: r.questions && r.questions.length > 0 ? r.questions : defaultQ
         };
@@ -707,8 +754,12 @@ export default function QuizWorkspacePage() {
           return {
             ...r,
             quizType: selectedRoundType,
+            mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
             isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions,
+            penaltyMarks: Number(defaultPenaltyMarks) || 0,
+            secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+            unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
             introMediaUrl: roundIntroMediaUrl,
             introMediaType: roundIntroMediaType
           };
@@ -720,8 +771,12 @@ export default function QuizWorkspacePage() {
         updatedRounds.push({
           roundNumber: currentRound,
           quizType: selectedRoundType,
+          mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          penaltyMarks: Number(defaultPenaltyMarks) || 0,
+          secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+          unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
           introMediaUrl: roundIntroMediaUrl,
           introMediaType: roundIntroMediaType,
           isCompleted: false
@@ -736,6 +791,9 @@ export default function QuizWorkspacePage() {
         quizType: selectedRoundType,
         defaultMarks: cleanDefaultMarks,
         defaultSecondTryMarks: cleanDefaultSecondMarks,
+        defaultPenaltyMarks: Number(defaultPenaltyMarks) || 0,
+        defaultSecondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+        defaultUnansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
         defaultTimeValue,
         defaultTimeUnit,
         currentRound,
@@ -781,8 +839,12 @@ export default function QuizWorkspacePage() {
           return {
             ...r,
             quizType: selectedRoundType,
+            mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
             isTypeConfirmed: isTypeConfirmed,
             questions: sanitizedQuestions,
+            penaltyMarks: Number(defaultPenaltyMarks) || 0,
+            secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+            unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
             introMediaUrl: roundIntroMediaUrl,
             introMediaType: roundIntroMediaType
           };
@@ -794,8 +856,12 @@ export default function QuizWorkspacePage() {
         updatedRounds.push({
           roundNumber: currentRound,
           quizType: selectedRoundType,
+          mediaFormat: selectedRoundType === 'media_based' ? mediaRoundFormat : undefined,
           isTypeConfirmed: isTypeConfirmed,
           questions: sanitizedQuestions,
+          penaltyMarks: Number(defaultPenaltyMarks) || 0,
+          secondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+          unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
           introMediaUrl: roundIntroMediaUrl,
           introMediaType: roundIntroMediaType,
           isCompleted: false
@@ -812,6 +878,9 @@ export default function QuizWorkspacePage() {
         quizType: round1?.quizType || selectedRoundType,
         defaultMarks: cleanDefaultMarks,
         defaultSecondTryMarks: cleanDefaultSecondMarks,
+        defaultPenaltyMarks: Number(defaultPenaltyMarks) || 0,
+        defaultSecondTryPenaltyMarks: Number(defaultSecondTryPenaltyMarks) || 0,
+        defaultUnansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
         defaultTimeValue,
         defaultTimeUnit,
         currentRound: 1, // Start quiz from Round 1
@@ -832,10 +901,14 @@ export default function QuizWorkspacePage() {
     }
   };
 
-  // Bulk Apply Marks to All Questions
+  // Bulk Apply Marks and Penalties to All Questions
   const handleApplyMarksToAll = () => {
     const markVal = Math.max(1, parseInt(defaultMarks, 10) || 1);
     const secondMarkVal = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+    const penVal = Math.max(0, parseFloat(defaultPenaltyMarks) || 0);
+    const secondPenVal = Math.max(0, parseFloat(defaultSecondTryPenaltyMarks) || 0);
+    const unansPenVal = Math.max(0, parseFloat(defaultUnansweredPenaltyMarks) || 0);
+
     setDefaultMarks(markVal);
     if (selectedRoundType === 'one_question_two_chances') {
       setDefaultSecondTryMarks(secondMarkVal);
@@ -843,14 +916,14 @@ export default function QuizWorkspacePage() {
     setQuestions(prev => prev.map(q => ({
       ...q,
       marks: markVal,
-      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal } : {})
+      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal, secondTryPenaltyMarks: secondPenVal } : {}),
+      penaltyMarks: penVal,
+      unansweredPenaltyMarks: unansPenVal
     })));
 
     setStatusMsg({
       type: 'success',
-      text: selectedRoundType === 'one_question_two_chances'
-        ? `Updated all ${questions.length} questions to ${markVal} pts (1st try) and ${secondMarkVal} pts (2nd try).`
-        : `Updated all ${questions.length} questions to ${markVal} mark${markVal === 1 ? '' : 's'} each.`
+      text: `Applied marks (${markVal} pts) and penalties to all ${questions.length} questions in Round ${currentRound}.`
     });
     setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
   };
@@ -877,14 +950,22 @@ export default function QuizWorkspacePage() {
     setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
   };
 
-  // Bulk Apply Both (Marks and Time) to All Questions
+  // Bulk Apply All (Marks, Penalties and Time) to All Questions
   const handleApplyAllToAll = () => {
     const markVal = Math.max(1, parseInt(defaultMarks, 10) || 1);
     const secondMarkVal = Math.max(1, parseInt(defaultSecondTryMarks, 10) || 1);
+    const penVal = Math.max(0, parseFloat(defaultPenaltyMarks) || 0);
+    const secondPenVal = Math.max(0, parseFloat(defaultSecondTryPenaltyMarks) || 0);
+    const unansPenVal = Math.max(0, parseFloat(defaultUnansweredPenaltyMarks) || 0);
+
     setDefaultMarks(markVal);
     if (selectedRoundType === 'one_question_two_chances') {
       setDefaultSecondTryMarks(secondMarkVal);
     }
+    setDefaultPenaltyMarks(penVal);
+    setDefaultSecondTryPenaltyMarks(secondPenVal);
+    setDefaultUnansweredPenaltyMarks(unansPenVal);
+
     const numTime = parseFloat(defaultTimeValue);
     const hasTime = defaultTimeValue !== '' && !isNaN(numTime) && numTime > 0;
     const inSeconds = hasTime ? (defaultTimeUnit === 'min' ? Math.round(numTime * 60) : Math.round(numTime)) : null;
@@ -892,17 +973,35 @@ export default function QuizWorkspacePage() {
     setQuestions(prev => prev.map(q => ({
       ...q,
       marks: markVal,
-      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal } : {}),
+      ...(selectedRoundType === 'one_question_two_chances' ? { secondTryMarks: secondMarkVal, secondTryPenaltyMarks: secondPenVal } : {}),
+      penaltyMarks: penVal,
+      unansweredPenaltyMarks: unansPenVal,
       timeValue: hasTime ? numTime : '',
       timeUnit: defaultTimeUnit,
       timeLimit: inSeconds
     })));
 
+    setRounds(prevRounds => prevRounds.map(r => {
+      if (r.roundNumber === currentRound) {
+        return {
+          ...r,
+          defaultMarks: markVal,
+          defaultSecondTryMarks: secondMarkVal,
+          defaultPenaltyMarks: penVal,
+          defaultSecondTryPenaltyMarks: secondPenVal,
+          defaultUnansweredPenaltyMarks: unansPenVal,
+          defaultTimeValue: hasTime ? numTime : '',
+          defaultTimeUnit
+        };
+      }
+      return r;
+    }));
+
     setStatusMsg({
       type: 'success',
       text: selectedRoundType === 'one_question_two_chances'
-        ? `Applied ${markVal} pts / ${secondMarkVal} pts and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
-        : `Applied ${markVal} pts and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
+        ? `Applied ${markVal} pts / ${secondMarkVal} pts, penalties, and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
+        : `Applied ${markVal} pts, penalties, and ${hasTime ? `${numTime} ${defaultTimeUnit}` : 'no'} time limit to all ${questions.length} questions.`
     });
     setTimeout(() => setStatusMsg({ type: '', text: '' }), 4000);
   };
@@ -915,7 +1014,7 @@ export default function QuizWorkspacePage() {
     const hasTime = defaultTimeValue !== '' && !isNaN(numTime) && numTime > 0;
     const inSeconds = hasTime ? (defaultTimeUnit === 'min' ? Math.round(numTime * 60) : Math.round(numTime)) : null;
 
-    const isDirect = selectedRoundType === 'answer_to_question';
+    const isDirect = selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && mediaRoundFormat === 'direct');
     const isTwoChances = selectedRoundType === 'one_question_two_chances';
     const isMedia = selectedRoundType === 'media_based';
 
@@ -926,8 +1025,12 @@ export default function QuizWorkspacePage() {
       mediaType: 'image',
       mediaUrl: '',
       answer: isDirect ? '' : undefined,
+      acceptableAnswers: isDirect ? [] : undefined,
       marks: markVal,
       secondTryMarks: isTwoChances ? secondMarkVal : undefined,
+      penaltyMarks: Number(defaultPenaltyMarks) || 0,
+      secondTryPenaltyMarks: isTwoChances ? (Number(defaultSecondTryPenaltyMarks) || 0) : undefined,
+      unansweredPenaltyMarks: Number(defaultUnansweredPenaltyMarks) || 0,
       timeLimit: inSeconds,
       timeValue: hasTime ? numTime : '',
       timeUnit: defaultTimeUnit || 'sec',
@@ -1013,19 +1116,67 @@ export default function QuizWorkspacePage() {
     });
   };
 
+  // Add Alternative Accepted Answer (for Q&A / Answer to Question mode)
+  const handleAddAcceptableAnswer = (qIdx) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[qIdx];
+      const currentList = Array.isArray(cur.acceptableAnswers) ? cur.acceptableAnswers : [];
+      next[qIdx] = {
+        ...cur,
+        acceptableAnswers: [...currentList, '']
+      };
+      return next;
+    });
+  };
+
+  // Update Alternative Accepted Answer
+  const handleAcceptableAnswerChange = (qIdx, altIdx, text) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[qIdx];
+      const currentList = Array.isArray(cur.acceptableAnswers) ? [...cur.acceptableAnswers] : [];
+      currentList[altIdx] = text;
+      next[qIdx] = {
+        ...cur,
+        acceptableAnswers: currentList
+      };
+      return next;
+    });
+  };
+
+  // Remove Alternative Accepted Answer
+  const handleRemoveAcceptableAnswer = (qIdx, altIdx) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      const cur = next[qIdx];
+      const currentList = Array.isArray(cur.acceptableAnswers) ? [...cur.acceptableAnswers] : [];
+      currentList.splice(altIdx, 1);
+      next[qIdx] = {
+        ...cur,
+        acceptableAnswers: currentList
+      };
+      return next;
+    });
+  };
+
   // Update Question Format (MCQ vs Direct Answer / Question Only)
   const handleQuestionFormatChange = (idx, format) => {
     setQuestions(prev => {
       const next = [...prev];
       const cur = next[idx];
       let nextOptions = cur.options || [];
-      if (format === 'mcq' && (!nextOptions || nextOptions.length === 0)) {
-        nextOptions = [
-          { id: 'opt_1', text: '', isCorrect: true },
-          { id: 'opt_2', text: '', isCorrect: false },
-          { id: 'opt_3', text: '', isCorrect: false },
-          { id: 'opt_4', text: '', isCorrect: false }
-        ];
+      if (format === 'mcq') {
+        if (!nextOptions || nextOptions.length === 0) {
+          nextOptions = [
+            { id: 'opt_1', text: '', isCorrect: true },
+            { id: 'opt_2', text: '', isCorrect: false },
+            { id: 'opt_3', text: '', isCorrect: false },
+            { id: 'opt_4', text: '', isCorrect: false }
+          ];
+        }
+      } else {
+        nextOptions = [];
       }
       next[idx] = {
         ...cur,
@@ -1118,6 +1269,18 @@ export default function QuizWorkspacePage() {
 
   const handleQuestionTimeLimitChange = (idx, val) => {
     handleQuestionTimeChange(idx, val, questions[idx]?.timeUnit || 'sec');
+  };
+
+  // Update Individual Question Penalty Marks
+  const handleQuestionPenaltyMarksChange = (idx, field, val) => {
+    setQuestions(prev => {
+      const next = [...prev];
+      next[idx] = {
+        ...next[idx],
+        [field]: val === '' ? '' : Math.max(0, parseFloat(val) || 0)
+      };
+      return next;
+    });
   };
 
   // Update Option Text
@@ -1340,6 +1503,55 @@ export default function QuizWorkspacePage() {
                 selectedTypeId={selectedRoundType}
                 onChange={setSelectedRoundType}
               />
+
+              {/* Media Round Default Format Option */}
+              {selectedRoundType === 'media_based' && (
+                <div className="mt-3 p-4 rounded-2xl bg-violet-50/70 dark:bg-violet-950/40 border border-violet-200/80 dark:border-violet-800/60 space-y-2.5 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-gray-900 dark:text-white block">
+                        Media Round Format
+                      </span>
+                      <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                        Choose whether questions in this media round default to Multiple Choice or Direct Q&A
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setMediaRoundFormat('mcq')}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        mediaRoundFormat === 'mcq'
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-md shadow-violet-500/25'
+                          : 'bg-white dark:bg-[#12141F] border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:border-violet-400'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-xs font-bold block">Multiple Choice (Options)</span>
+                        <span className={`text-[10px] ${mediaRoundFormat === 'mcq' ? 'text-violet-100' : 'text-gray-400'}`}>Options A, B, C, D</span>
+                      </div>
+                      {mediaRoundFormat === 'mcq' && <Check className="w-4 h-4 shrink-0 stroke-[3]" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setMediaRoundFormat('direct')}
+                      className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                        mediaRoundFormat === 'direct'
+                          ? 'bg-violet-600 text-white border-violet-600 shadow-md shadow-violet-500/25'
+                          : 'bg-white dark:bg-[#12141F] border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:border-violet-400'
+                      }`}
+                    >
+                      <div>
+                        <span className="text-xs font-bold block">Direct Q&A (Question & Answer)</span>
+                        <span className={`text-[10px] ${mediaRoundFormat === 'direct' ? 'text-violet-100' : 'text-gray-400'}`}>Type answer / no options</span>
+                      </div>
+                      {mediaRoundFormat === 'direct' && <Check className="w-4 h-4 shrink-0 stroke-[3]" />}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="pt-3">
@@ -1376,7 +1588,7 @@ export default function QuizWorkspacePage() {
                     : typeDef.id === 'answer_to_question'
                     ? 'Answer to Question (Direct Q&A)'
                     : typeDef.id === 'media_based'
-                    ? 'Media Question (Audio/Video/Image)'
+                    ? `Media Question (${mediaRoundFormat === 'direct' ? 'Direct Q&A' : 'Options'})`
                     : `${typeDef.name} (MCQ)`}
                 </span>
                 <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-2 flex-wrap">
@@ -1433,9 +1645,9 @@ export default function QuizWorkspacePage() {
             <span>Import Excel</span>
           </button>
 
-          <div className="px-3.5 py-2 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-200 dark:border-gray-800 text-center">
-            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider block">Questions</span>
-            <span className="text-sm font-bold text-gray-900 dark:text-white">{questions.length}</span>
+          <div className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gray-50 dark:bg-[#191D2B] border border-gray-200 dark:border-gray-800 text-xs font-semibold">
+            <span className="text-gray-500 dark:text-gray-400">Questions:</span>
+            <span className="font-bold text-gray-900 dark:text-white">{questions.length}</span>
           </div>
 
           <button
@@ -1563,28 +1775,30 @@ export default function QuizWorkspacePage() {
       </div>
 
       {/* Bulk Scoring & Timing Toolbar (Apply to all) */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-violet-50/80 via-indigo-50/50 to-purple-50/80 dark:from-violet-950/30 dark:via-indigo-950/20 dark:to-purple-950/30 border border-violet-200/80 dark:border-violet-900/50 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-xs shrink-0">
-            <Award className="w-4 h-4" />
+      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-violet-50/80 via-indigo-50/50 to-purple-50/80 dark:from-violet-950/30 dark:via-indigo-950/20 dark:to-purple-950/30 border border-violet-200/80 dark:border-violet-900/50 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        {/* Left Side: Title on top, Inputs on bottom */}
+        <div className="flex-1 min-w-0 space-y-2.5">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center font-bold text-xs shrink-0">
+              <Award className="w-4 h-4" />
+            </div>
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <h4 className="text-xs font-bold text-gray-900 dark:text-white">
+                Quiz Setup & Bulk Apply
+              </h4>
+              <span className="hidden sm:inline text-gray-400 text-xs">•</span>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                Apply uniform marks and time limits to all questions, or customize them individually below.
+              </p>
+            </div>
           </div>
-          <div>
-            <h4 className="text-xs font-bold text-gray-900 dark:text-white">
-              Quiz Setup & Bulk Apply
-            </h4>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400">
-              Apply uniform marks and time limits to all questions, or customize them individually below.
-            </p>
-          </div>
-        </div>
 
-        <div className="flex flex-col sm:items-end items-center gap-2.5">
-          {/* Mark & Time Inputs Row */}
-          <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2.5">
+          {/* Mark, Time & Penalty Inputs: Single horizontal row */}
+          <div className="flex items-center gap-2 overflow-x-auto max-w-full py-0.5 flex-nowrap whitespace-nowrap scrollbar-thin">
             {/* Mark Input(s) */}
             {selectedRoundType === 'one_question_two_chances' ? (
               <>
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs" title="1st Attempt Marks">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="1st Attempt Marks">
                   <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">1st Try:</span>
                   <input
                     type="number"
@@ -1597,12 +1811,12 @@ export default function QuizWorkspacePage() {
                         setDefaultMarks(1);
                       }
                     }}
-                    className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
-                  <span className="text-[11px] text-gray-400">pts</span>
+                  <span className="text-[10px] text-gray-400">pts</span>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs" title="2nd Attempt Marks">
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="2nd Attempt Marks">
                   <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">2nd Try:</span>
                   <input
                     type="number"
@@ -1615,13 +1829,13 @@ export default function QuizWorkspacePage() {
                         setDefaultSecondTryMarks(1);
                       }
                     }}
-                    className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
-                  <span className="text-[11px] text-gray-400">pts</span>
+                  <span className="text-[10px] text-gray-400">pts</span>
                 </div>
               </>
             ) : (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs">
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0">
                 <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Mark:</span>
                 <input
                   type="number"
@@ -1634,14 +1848,14 @@ export default function QuizWorkspacePage() {
                       setDefaultMarks(1);
                     }
                   }}
-                  className="w-12 sm:w-14 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  className="w-10 sm:w-11 text-xs font-bold text-gray-900 dark:text-white text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                 />
-                <span className="text-[11px] text-gray-400">pts</span>
+                <span className="text-[10px] text-gray-400">pts</span>
               </div>
             )}
 
             {/* Time Limit Input with Stylish sec/min */}
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs">
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-amber-200 dark:border-amber-900/50 shadow-xs shrink-0">
               <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
               <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-400">Time:</span>
               <input
@@ -1651,44 +1865,91 @@ export default function QuizWorkspacePage() {
                 placeholder="None"
                 value={defaultTimeValue}
                 onChange={(e) => setDefaultTimeValue(e.target.value)}
-                className="w-14 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
+                className="w-11 sm:w-12 text-xs font-bold text-amber-700 dark:text-amber-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-400 placeholder:font-normal"
               />
               <StylishUnitDropdown
                 value={defaultTimeUnit}
                 onChange={setDefaultTimeUnit}
               />
             </div>
+
+            {/* Penalty Configuration Controls for this Round */}
+            {selectedRoundType === 'one_question_two_chances' ? (
+              <>
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 1st try is wrong (optional, default 0)">
+                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">1st Wrong:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    placeholder="0"
+                    value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
+                    onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                  />
+                  <span className="text-[10px] text-gray-400">pts</span>
+                </div>
+
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks if 2nd try is wrong (optional, default 0)">
+                  <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">2nd Wrong:</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={50}
+                    step={0.5}
+                    placeholder="0"
+                    value={defaultSecondTryPenaltyMarks !== undefined && defaultSecondTryPenaltyMarks !== null ? defaultSecondTryPenaltyMarks : ''}
+                    onChange={(e) => setDefaultSecondTryPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                    className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                  />
+                  <span className="text-[10px] text-gray-400">pts</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-rose-200 dark:border-rose-900/50 shadow-xs shrink-0" title="Penalty marks for wrong answer (optional, default 0)">
+                <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">Wrong Pen:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  step={0.5}
+                  placeholder="0"
+                  value={defaultPenaltyMarks !== undefined && defaultPenaltyMarks !== null ? defaultPenaltyMarks : ''}
+                  onChange={(e) => setDefaultPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                  className="w-10 sm:w-11 text-xs font-bold text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+                />
+                <span className="text-[10px] text-gray-400">pts</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#161925] border border-gray-200 dark:border-gray-800 shadow-xs shrink-0" title="Penalty marks if time runs out without answering (optional, default 0)">
+              <span className="text-[11px] font-semibold text-gray-500 dark:text-gray-400">Unanswered:</span>
+              <input
+                type="number"
+                min={0}
+                max={50}
+                step={0.5}
+                placeholder="0"
+                value={defaultUnansweredPenaltyMarks !== undefined && defaultUnansweredPenaltyMarks !== null ? defaultUnansweredPenaltyMarks : ''}
+                onChange={(e) => setDefaultUnansweredPenaltyMarks(e.target.value === '' ? '' : Math.max(0, parseFloat(e.target.value) || 0))}
+                className="w-10 sm:w-11 text-xs font-bold text-gray-700 dark:text-gray-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none placeholder:text-gray-300"
+              />
+              <span className="text-[10px] text-gray-400">pts</span>
+            </div>
           </div>
+        </div>
 
-          {/* Action Buttons: Centered in the middle */}
-          <div className="flex items-center justify-center gap-2 w-full">
-            <button
-              type="button"
-              onClick={handleApplyMarksToAll}
-              title="Apply only marks to all questions"
-              className="px-3.5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-xs shadow-violet-600/25 transition-all cursor-pointer whitespace-nowrap"
-            >
-              Apply Marks
-            </button>
-
-            <button
-              type="button"
-              onClick={handleApplyTimeToAll}
-              title="Apply only time limit to all questions"
-              className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs shadow-amber-600/25 transition-all cursor-pointer whitespace-nowrap"
-            >
-              Apply Time
-            </button>
-
-            <button
-              type="button"
-              onClick={handleApplyAllToAll}
-              title="Apply both marks and time limit to all questions"
-              className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs shadow-indigo-600/25 transition-all cursor-pointer whitespace-nowrap"
-            >
-              Apply to All
-            </button>
-          </div>
+        {/* Right Side: Apply to All Button vertically centered in the card */}
+        <div className="shrink-0 flex items-center justify-center self-center pl-1 sm:pl-2">
+          <button
+            type="button"
+            onClick={handleApplyAllToAll}
+            title="Apply marks, time limit, and penalty rules to all questions"
+            className="px-5 py-3 rounded-2xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-black shadow-lg shadow-violet-600/30 transition-all cursor-pointer whitespace-nowrap hover:scale-105 active:scale-95"
+          >
+            Apply to All
+          </button>
         </div>
       </div>
 
@@ -1754,6 +2015,70 @@ export default function QuizWorkspacePage() {
                     </div>
                   )}
 
+                  {/* Individual Question Penalty Inputs */}
+                  {selectedRoundType === 'one_question_two_chances' ? (
+                    <>
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40" title="1st attempt wrong penalty">
+                        <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">1st Pen:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          placeholder="0"
+                          value={q.penaltyMarks !== undefined && q.penaltyMarks !== null ? q.penaltyMarks : ''}
+                          onChange={(e) => handleQuestionPenaltyMarksChange(qIdx, 'penaltyMarks', e.target.value)}
+                          className="w-10 text-xs font-black text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[9px] text-gray-400">pts</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40" title="2nd attempt wrong penalty">
+                        <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">2nd Pen:</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          placeholder="0"
+                          value={q.secondTryPenaltyMarks !== undefined && q.secondTryPenaltyMarks !== null ? q.secondTryPenaltyMarks : ''}
+                          onChange={(e) => handleQuestionPenaltyMarksChange(qIdx, 'secondTryPenaltyMarks', e.target.value)}
+                          className="w-10 text-xs font-black text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <span className="text-[9px] text-gray-400">pts</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-50/70 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40" title="Wrong answer penalty">
+                      <span className="text-[10px] font-semibold text-rose-600 dark:text-rose-400">Penalty:</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.5}
+                        placeholder="0"
+                        value={q.penaltyMarks !== undefined && q.penaltyMarks !== null ? q.penaltyMarks : ''}
+                        onChange={(e) => handleQuestionPenaltyMarksChange(qIdx, 'penaltyMarks', e.target.value)}
+                        className="w-10 text-xs font-black text-rose-600 dark:text-rose-400 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                      <span className="text-[9px] text-gray-400">pts</span>
+                    </div>
+                  )}
+
+                  {/* Individual Question Unanswered Penalty Input */}
+                  <div
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50/70 dark:bg-gray-800/40 border border-gray-200 dark:border-gray-700/60"
+                    title="Penalty marks if time runs out without answering (optional, default 0)"
+                  >
+                    <span className="text-[10px] font-semibold text-gray-500 dark:text-gray-400">Unanswered:</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      placeholder="0"
+                      value={q.unansweredPenaltyMarks !== undefined && q.unansweredPenaltyMarks !== null ? q.unansweredPenaltyMarks : ''}
+                      onChange={(e) => handleQuestionPenaltyMarksChange(qIdx, 'unansweredPenaltyMarks', e.target.value)}
+                      className="w-10 text-xs font-black text-gray-700 dark:text-gray-300 text-center bg-transparent focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <span className="text-[9px] text-gray-400">pts</span>
+                  </div>
+
                   {/* Optional Time Limit Input with Stylish sec/min */}
                   <div
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/50"
@@ -1815,35 +2140,46 @@ export default function QuizWorkspacePage() {
                 </div>
               </div>
 
-              {/* Question Format Selector (for media_based round) */}
-              {selectedRoundType === 'media_based' && (
-                <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 rounded-2xl bg-gray-50/80 dark:bg-[#12141F] border border-gray-200/80 dark:border-gray-800">
-                  <div>
-                    <span className="text-xs font-bold text-gray-800 dark:text-gray-200 block">Question Format</span>
-                    <span className="text-[11px] text-gray-400">Choose MCQ (with choices) or Question Only (verbal / direct answer)</span>
+              {/* Question Format Selector (for media_based round or media questions) */}
+              {(selectedRoundType === 'media_based' || q.mediaUrl) && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-2xl bg-gray-50/90 dark:bg-[#12141F] border border-gray-200/90 dark:border-gray-800">
+                  <div className="space-y-0.5">
+                    <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                      <span>Question Format:</span>
+                      <span className="text-violet-600 dark:text-violet-400 font-extrabold">
+                        {(q.format || 'mcq') === 'direct' ? 'Direct Q&A' : 'Multiple Choice (Options)'}
+                      </span>
+                    </span>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {(q.format || 'mcq') === 'direct'
+                        ? 'Participants type answers on device (or verbal Q&A) • No option buttons'
+                        : 'Displays Option buttons (A, B, C, D) for participants to choose'}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1 bg-white dark:bg-[#161925] p-1 rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs">
+                  <div className="flex items-center gap-1.5 bg-white dark:bg-[#161925] p-1 rounded-xl border border-gray-200 dark:border-gray-800 shadow-xs shrink-0">
                     <button
                       type="button"
                       onClick={() => handleQuestionFormatChange(qIdx, 'mcq')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                         (q.format || 'mcq') === 'mcq'
                           ? 'bg-[#635BFF] text-white shadow-xs'
                           : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                       }`}
                     >
-                      Multiple Choice (MCQ)
+                      {(q.format || 'mcq') === 'mcq' && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      <span>Options (MCQ)</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => handleQuestionFormatChange(qIdx, 'direct')}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
                         q.format === 'direct'
                           ? 'bg-[#635BFF] text-white shadow-xs'
                           : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
                       }`}
                     >
-                      Question Only (Direct Answer)
+                      {q.format === 'direct' && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                      <span>Direct Q&A</span>
                     </button>
                   </div>
                 </div>
@@ -1945,17 +2281,68 @@ export default function QuizWorkspacePage() {
 
               {selectedRoundType === 'answer_to_question' || (selectedRoundType === 'media_based' && q.format === 'direct') ? (
                 /* Direct Answer (Answer to Question / Direct Media Question) */
-                <div className="space-y-1.5 pt-1">
-                  <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
-                    Correct Answer <span className="normal-case font-normal text-gray-400">(Revealed when "Show Answer" is clicked during quiz)</span>
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={q.answer || ''}
-                    onChange={(e) => handleQuestionAnswerChange(qIdx, e.target.value)}
-                    placeholder="Enter the correct answer to be revealed, e.g. Canberra / Mitochondria / 1969..."
-                    className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400 resize-none shadow-xs"
-                  />
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider block">
+                        Primary Correct Answer <span className="normal-case font-normal text-gray-400">(Main answer revealed during quiz)</span>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleAddAcceptableAnswer(qIdx)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-50 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/50 text-xs font-bold transition-all cursor-pointer border border-violet-200/60 dark:border-violet-800/60"
+                        title="Add another acceptable correct answer if participants can type multiple valid answers"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Option</span>
+                      </button>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={q.answer || ''}
+                      onChange={(e) => handleQuestionAnswerChange(qIdx, e.target.value)}
+                      placeholder="e.g. Canberra, or 'a', or Mitochondria..."
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-[#12141F] text-sm text-gray-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400 resize-none shadow-xs"
+                    />
+                  </div>
+
+                  {/* Alternative Accepted Answers (Optional Multiple Correct Options) */}
+                  {Array.isArray(q.acceptableAnswers) && q.acceptableAnswers.length > 0 && (
+                    <div className="space-y-2 p-3.5 rounded-2xl bg-gray-50/70 dark:bg-[#141724] border border-gray-200/80 dark:border-gray-800/80">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                          Alternative Accepted Answers ({q.acceptableAnswers.length})
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          Graded as correct if typed
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {q.acceptableAnswers.map((altAns, altIdx) => (
+                          <div key={altIdx} className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-lg bg-violet-100 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
+                              #{altIdx + 1}
+                            </span>
+                            <input
+                              type="text"
+                              value={altAns}
+                              onChange={(e) => handleAcceptableAnswerChange(qIdx, altIdx, e.target.value)}
+                              placeholder="Alternative answer"
+                              className="flex-1 px-3.5 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-[#12141F] text-xs font-semibold text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-[#635BFF]/30 placeholder:text-gray-400 shadow-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAcceptableAnswer(qIdx, altIdx)}
+                              className="p-2 rounded-xl text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all cursor-pointer"
+                              title="Delete this option"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 /* Multiple Choice Options List */

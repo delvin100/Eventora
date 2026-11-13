@@ -1,16 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, X, Video as VideoIcon, Music, Image as ImageIcon, Link as LinkIcon, Check, Loader2 } from 'lucide-react';
 import MediaViewer from './MediaViewer';
 
 export default function QuizSettingsModal({ quiz, isOpen, onClose, onSave }) {
-  if (!isOpen || !quiz) return null;
-
-  const [name, setName] = useState(quiz.name || '');
-  const [description, setDescription] = useState(quiz.description || '');
-  const [introMediaUrl, setIntroMediaUrl] = useState(quiz.introMediaUrl || '');
-  const [introMediaType, setIntroMediaType] = useState(quiz.introMediaType || 'video');
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [introMediaUrl, setIntroMediaUrl] = useState('');
+  const [introMediaType, setIntroMediaType] = useState('video');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (quiz && isOpen) {
+      setName(quiz.name || '');
+      setDescription(quiz.description || '');
+      setIntroMediaUrl(quiz.introMediaUrl || '');
+      setIntroMediaType(quiz.introMediaType || 'video');
+      setError('');
+    }
+  }, [quiz, isOpen]);
+
+  if (!isOpen || !quiz) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();

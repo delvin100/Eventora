@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Plus, ListOrdered } from 'lucide-react';
+import { X, ListOrdered } from 'lucide-react';
 
 export default function CreateListModal({ isOpen, onClose, onCreateList }) {
   const [name, setName] = useState('');

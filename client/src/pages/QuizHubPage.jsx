@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -24,7 +24,6 @@ import { slugify } from '../utils/slugUtils';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import QuizSettingsModal from '../components/quiz/QuizSettingsModal';
 import QuizExcelImportModal from '../components/quiz/QuizExcelImportModal';
-import LiveArenaComingSoonModal from '../components/common/LiveArenaComingSoonModal';
 
 export default function QuizHubPage() {
   const { user } = useAuth();
@@ -40,7 +39,17 @@ export default function QuizHubPage() {
   const [resetting, setResetting] = useState(false);
   const [resetSuccess, setResetSuccess] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
-  const [isLiveArenaComingSoonOpen, setIsLiveArenaComingSoonOpen] = useState(false);
+  const launchStepRef = useRef(null);
+
+  // Automatically scroll down to Step 3 (Launch & Play Quiz) when navigated with scrollTo: 'launch' or #launch
+  useEffect(() => {
+    if (!loading && (location.state?.scrollTo === 'launch' || location.hash === '#launch')) {
+      const timer = setTimeout(() => {
+        launchStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [loading, location.state, location.hash]);
 
   const fetchQuiz = async () => {
     try {
@@ -190,12 +199,17 @@ export default function QuizHubPage() {
   }
 
   const quizSlug = slugify(quiz.name) || quiz.id;
-  const roundsCount = Array.isArray(quiz.rounds) && quiz.rounds.length > 0 ? quiz.rounds.length : 1;
+  const roundsList = Array.isArray(quiz.rounds) && quiz.rounds.length > 0
+    ? quiz.rounds
+    : [{ roundNumber: 1, questions: quiz.questions || [] }];
+  const roundsCount = roundsList.length;
   const participantsCount = Array.isArray(quiz.participants) ? quiz.participants.length : 0;
-  const totalQuestions = (Array.isArray(quiz.rounds) ? quiz.rounds : []).reduce(
+  const totalQuestions = roundsList.reduce(
     (sum, r) => sum + (Array.isArray(r.questions) ? r.questions.length : 0),
-    Array.isArray(quiz.questions) ? quiz.questions.length : 0
+    0
   );
+  const activeRound = roundsList.find(r => r.roundNumber === (quiz.currentRound || 1)) || roundsList[0];
+  const activeQuestionsCount = Array.isArray(activeRound?.questions) ? activeRound.questions.length : (quiz.questions?.length || 0);
 
   return (
     <div className="max-w-6xl mx-auto p-4 sm:p-6 lg:p-8 space-y-8 animate-in fade-in duration-200">
@@ -380,7 +394,7 @@ export default function QuizHubPage() {
       </div>
 
       {/* Step 3: Launch & Play Arena Modes */}
-      <div className="space-y-4 pt-2">
+      <div ref={launchStepRef} id="launch-step" className="space-y-4 pt-2">
         <div>
           <h2 className="text-base font-black text-gray-900 dark:text-white flex items-center gap-2">
             <span>Launch & Play Quiz</span>
@@ -396,7 +410,12 @@ export default function QuizHubPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Mode A: Stage & Wheel Presenter */}
           <div
-            onClick={() => navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } })}
+            onClick={() => {
+              if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+              }
+              navigate(`/home/quiz/${quizSlug}/play`, { state: { quizId: quiz.id, startQuiz: true, fullscreen: true, round: quiz.currentRound || 1, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } });
+            }}
             className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#635BFF] via-[#5145E5] to-[#4338CA] text-white p-6 sm:p-8 shadow-xl shadow-[#635BFF]/20 hover:shadow-2xl hover:shadow-[#635BFF]/35 hover:-translate-y-1 transition-all cursor-pointer ring-1 ring-white/20"
           >
             <div className="space-y-4">
@@ -432,7 +451,12 @@ export default function QuizHubPage() {
 
           {/* Mode B: Live Audience Device Arena */}
           <div
-            onClick={() => setIsLiveArenaComingSoonOpen(true)}
+            onClick={() => {
+              if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+                document.documentElement.requestFullscreen().catch(() => {});
+              }
+              navigate(`/home/quiz/${quizSlug}/live`, { state: { quizId: quiz.id, fullscreen: true, fromAdminAllQuizzes: location.state?.fromAdminAllQuizzes } });
+            }}
             className="group relative flex flex-col justify-between rounded-3xl bg-gradient-to-br from-[#1E1B4B] via-[#2A1B6B] to-[#1E1B4B] text-white p-6 sm:p-8 shadow-xl shadow-indigo-950/40 hover:shadow-2xl hover:shadow-violet-900/40 hover:-translate-y-1 transition-all cursor-pointer border-2 border-violet-500/40 hover:border-violet-400"
           >
             <div className="space-y-4">
@@ -495,12 +519,6 @@ export default function QuizHubPage() {
         onConfirm={handleResetProgress}
         onCancel={() => setIsResetDialogOpen(false)}
         onClose={() => setIsResetDialogOpen(false)}
-      />
-
-      {/* Live Device Arena In Development Coming Soon Modal */}
-      <LiveArenaComingSoonModal
-        isOpen={isLiveArenaComingSoonOpen}
-        onClose={() => setIsLiveArenaComingSoonOpen(false)}
       />
     </div>
   );

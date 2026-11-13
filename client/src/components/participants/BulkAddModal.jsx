@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, AlignLeft, CheckCircle2 } from 'lucide-react';
+import { X, AlignLeft } from 'lucide-react';
 
 export default function BulkAddModal({ isOpen, onClose, onBulkSave, existingParticipants = [] }) {
   const [text, setText] = useState('');

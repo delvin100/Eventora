@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useOutletContext } from 'react-router-dom';
-import { History, Trophy, Shuffle, Users, Eye, Trash2, Loader2, Award, Star, UserCheck, FileText, Sparkles } from 'lucide-react';
+import { History, Trophy, Shuffle, Users, Eye, Trash2, Loader2, Award, UserCheck, FileText } from 'lucide-react';
 import ResultDetailModal from '../components/results/ResultDetailModal';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import SpecialEventDetailedReportModal from '../components/specialEvents/SpecialEventDetailedReportModal';

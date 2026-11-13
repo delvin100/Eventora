@@ -210,10 +210,6 @@ export default function AdminAllQuizzesPage() {
     }
   }, [isAdmin]);
 
-  if (!isAdmin) {
-    return <Navigate to="/home" replace />;
-  }
-
   const handleDeleteQuiz = async () => {
     if (!quizToDelete) return;
     try {
@@ -341,6 +337,10 @@ export default function AdminAllQuizzesPage() {
     { id: 'All', label: 'All Types' },
     ...QUIZ_TYPES.map(t => ({ id: t.id, label: t.name }))
   ];
+
+  if (!isAdmin) {
+    return <Navigate to="/home" replace />;
+  }
 
   return (
     <div className="space-y-6">

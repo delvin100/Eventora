@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useOutletContext, Link } from 'react-router-dom';
 import confetti from 'canvas-confetti';
-import { Users, Shuffle, RotateCcw } from 'lucide-react';
+import { Users, Shuffle } from 'lucide-react';
 
 import ShuffleToolbar from '../components/shuffle/ShuffleToolbar';
 import ShuffleOrderList from '../components/shuffle/ShuffleOrderList';

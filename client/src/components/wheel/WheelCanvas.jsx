@@ -174,7 +174,7 @@ const WheelCanvas = forwardRef(function WheelCanvas(
     const ctx = canvas.getContext('2d');
 
     const dpr = window.devicePixelRatio || 1;
-    const size = 460;
+    const size = 800;
 
     if (canvas.width !== size * dpr) {
       canvas.width = size * dpr;
@@ -187,9 +187,9 @@ const WheelCanvas = forwardRef(function WheelCanvas(
 
     const centerX = size / 2;
     const centerY = size / 2;
-    const outerBezelRadius = size / 2 - 14;
-    const pegTrackRadius = outerBezelRadius - 15;
-    const wheelRadius = pegTrackRadius - 8;
+    const outerBezelRadius = size / 2 - 20;
+    const pegTrackRadius = outerBezelRadius - 16;
+    const wheelRadius = pegTrackRadius - 10;
 
     // Handle empty state
     if (numSegments === 0) {
@@ -202,7 +202,7 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       ctx.stroke();
 
       ctx.fillStyle = '#94A3B8';
-      ctx.font = 'bold 15px "Inter", sans-serif';
+      ctx.font = 'bold 20px "Inter", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText('No eligible participants', centerX, centerY);
@@ -375,9 +375,9 @@ const WheelCanvas = forwardRef(function WheelCanvas(
       const isTwoLine = lines.length > 1;
 
       const longestLine = lines.reduce((max, l) => Math.max(max, l.length), 0);
-      let fontSize = isTwoLine ? 10.5 : (numSegments <= 6 ? 14 : numSegments <= 8 ? 13 : numSegments <= 12 ? 12 : 11);
-      if (longestLine > 16) fontSize = isTwoLine ? 9 : 10;
-      else if (longestLine > 13 && !isTwoLine) fontSize = 11;
+      let fontSize = isTwoLine ? 16 : (numSegments <= 6 ? 24 : numSegments <= 8 ? 22 : numSegments <= 12 ? 19 : 16);
+      if (longestLine > 16) fontSize = isTwoLine ? 14 : 15;
+      else if (longestLine > 13 && !isTwoLine) fontSize = 16;
 
       ctx.font = `bold ${fontSize}px "Inter", system-ui, -apple-system, sans-serif`;
       ctx.textAlign = 'center';
@@ -564,23 +564,23 @@ const WheelCanvas = forwardRef(function WheelCanvas(
     flapperDeflectionRef.current *= 0.82;
 
     ctx.save();
-    const flapperPivotY = centerY - outerBezelRadius + 6;
+    const flapperPivotY = centerY - outerBezelRadius + 12;
     ctx.translate(centerX, flapperPivotY);
     ctx.rotate(flapperDeflectionRef.current);
 
     // Flapper drop shadow
     ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
-    ctx.shadowBlur = 10;
-    ctx.shadowOffsetY = 5;
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetY = 7;
 
     // Sleek Ruby-Metallic Flapper Needle
     ctx.beginPath();
-    ctx.moveTo(-12, -18);
-    ctx.lineTo(12, -18);
-    ctx.lineTo(0, 26);
+    ctx.moveTo(-18, -26);
+    ctx.lineTo(18, -26);
+    ctx.lineTo(0, 38);
     ctx.closePath();
 
-    const flapperGrad = ctx.createLinearGradient(0, -18, 0, 26);
+    const flapperGrad = ctx.createLinearGradient(0, -26, 0, 38);
     flapperGrad.addColorStop(0, '#FF4D4D');
     flapperGrad.addColorStop(0.5, '#EF4444');
     flapperGrad.addColorStop(0.85, '#B91C1C');
@@ -589,14 +589,14 @@ const WheelCanvas = forwardRef(function WheelCanvas(
     ctx.fill();
 
     // Chrome Beveled Border on Flapper
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.strokeStyle = '#FFFFFF';
     ctx.stroke();
 
     // Top mounting bolt / chrome rivet
     ctx.beginPath();
-    ctx.arc(0, -9, 4.5, 0, 2 * Math.PI);
-    const rivetGrad = ctx.createRadialGradient(-1, -10, 0.5, 0, -9, 4.5);
+    ctx.arc(0, -13, 6.5, 0, 2 * Math.PI);
+    const rivetGrad = ctx.createRadialGradient(-1, -14, 0.5, 0, -13, 6.5);
     rivetGrad.addColorStop(0, '#FFFFFF');
     rivetGrad.addColorStop(0.7, '#94A3B8');
     rivetGrad.addColorStop(1, '#334155');
@@ -739,10 +739,10 @@ const WheelCanvas = forwardRef(function WheelCanvas(
   };
 
   return (
-    <div className={`relative flex items-center justify-center w-full ${className}`}>
+    <div className={`relative flex items-center justify-center w-full h-full ${className}`}>
       <canvas
         ref={canvasRef}
-        style={{ width: 'min(100%, 440px)', height: 'auto', aspectRatio: '1 / 1' }}
+        style={{ width: '100%', height: '100%', maxHeight: '100%', aspectRatio: '1 / 1' }}
         className="max-w-full drop-shadow-[0_20px_45px_rgba(0,0,0,0.65)] select-none cursor-pointer active:scale-[0.99] transition-transform"
         onClick={() => startSpin()}
         title="Click wheel to spin"

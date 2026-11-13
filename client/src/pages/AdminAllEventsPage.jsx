@@ -190,10 +190,6 @@ export default function AdminAllEventsPage() {
     }
   }, [isAdmin]);
 
-  if (!isAdmin) {
-    return <Navigate to="/home" replace />;
-  }
-
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
     try {
@@ -270,6 +266,10 @@ export default function AdminAllEventsPage() {
     const specialCount = events.filter(e => e.category === 'Special Event').length;
     return { totalEvents, totalParticipants, uniqueOwners, specialCount };
   }, [events]);
+
+  if (!isAdmin) {
+    return <Navigate to="/home" replace />;
+  }
 
   return (
     <div className="space-y-6">

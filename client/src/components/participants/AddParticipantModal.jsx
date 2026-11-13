@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, UserPlus, Check } from 'lucide-react';
+import { X, UserPlus } from 'lucide-react';
 
 export default function AddParticipantModal({ isOpen, onClose, onSave, editingParticipant = null }) {
   const [name, setName] = useState('');
